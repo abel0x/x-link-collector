@@ -6,6 +6,9 @@
 BIN_NAME := x-link-receiver
 CARGO    ?= cargo
 UNAME    := $(shell uname -s)
+# Clippy runs per target: a lint can fire on one platform and not another,
+# which is exactly how a Windows-only `needless_return` reached CI once.
+CI_TARGETS := x86_64-unknown-linux-gnu x86_64-pc-windows-gnu aarch64-apple-darwin
 PREFIX   ?= $(HOME)/.local
 BIN      := receiver/target/release/$(BIN_NAME)
 UNIT_DIR := $(HOME)/.config/systemd/user
@@ -13,7 +16,7 @@ UNIT     := $(UNIT_DIR)/$(BIN_NAME).service
 PLIST_ID := com.abel0x.x-link-receiver
 
 .DEFAULT_GOAL := help
-.PHONY: help build test test-rs test-ext run install uninstall service \
+.PHONY: help build ci test test-rs test-ext run install uninstall service \
 	    service-stop service-uninstall status logs package clean
 
 help: ## show this help
@@ -21,6 +24,19 @@ help: ## show this help
 
 build: ## compile the receiver in release mode
 	$(CARGO) build --release --manifest-path receiver/Cargo.toml
+
+ci: ## run every check CI runs, including the cross-target ones
+	$(CARGO) fmt --manifest-path receiver/Cargo.toml --check
+	$(CARGO) test --manifest-path receiver/Cargo.toml
+	@for t in $(CI_TARGETS); do \
+	  printf 'clippy %s\n' "$$t"; \
+	  $(CARGO) clippy --manifest-path receiver/Cargo.toml --target "$$t" \
+	    --all-targets -- -D warnings || exit 1; \
+	done
+	node --test extension/test/
+	python3 downloader/x-download --help >/dev/null
+	python3 spliter/x-flatten --help >/dev/null
+	@echo "all clear"
 
 test: test-rs test-ext ## run every test
 

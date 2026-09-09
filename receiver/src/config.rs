@@ -146,7 +146,7 @@ fn xdg_desktop_dir() -> Option<PathBuf> {
                 return Some(candidate);
             }
         }
-        return Some(home().join("Desktop"));
+        Some(home().join("Desktop"))
     }
 
     #[cfg(not(windows))]
