@@ -40,7 +40,10 @@ jobs:
           sudo apt-get update && sudo apt-get install -y musl-tools
           rustup target add x86_64-unknown-linux-musl
           cargo build --release --target x86_64-unknown-linux-musl --manifest-path receiver/Cargo.toml
-          file receiver/target/x86_64-unknown-linux-musl/release/x-link-receiver | grep -q "statically linked"
+          # `file` says "static-pie linked" for a static PIE; older toolchains
+          # say "statically linked". Either one means no dynamic libc.
+          file receiver/target/x86_64-unknown-linux-musl/release/x-link-receiver \
+            | grep -qE "static-pie linked|statically linked"
 
   extension:
     name: extension
