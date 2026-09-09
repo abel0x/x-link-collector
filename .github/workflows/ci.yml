@@ -1,0 +1,74 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  receiver:
+    name: receiver (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: receiver
+      - name: build
+        run: cargo build --release --manifest-path receiver/Cargo.toml
+      - name: test
+        run: cargo test --manifest-path receiver/Cargo.toml
+      - name: clippy
+        run: cargo clippy --manifest-path receiver/Cargo.toml --all-targets -- -D warnings
+      - name: rustfmt
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo fmt --manifest-path receiver/Cargo.toml --check
+      - name: static musl build (what releases ship on Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update && sudo apt-get install -y musl-tools
+          rustup target add x86_64-unknown-linux-musl
+          cargo build --release --target x86_64-unknown-linux-musl --manifest-path receiver/Cargo.toml
+          file receiver/target/x86_64-unknown-linux-musl/release/x-link-receiver | grep -q "statically linked"
+
+  extension:
+    name: extension
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: service worker tests
+        run: node --test extension/test/
+      - name: manifest is valid json
+        run: python3 -c "import json;json.load(open('extension/manifest.json'))"
+
+  tools:
+    name: python tools
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: they at least parse and answer --help everywhere
+        shell: bash
+        run: |
+          python downloader/x-download --help > /dev/null
+          python spliter/x-flatten --help > /dev/null

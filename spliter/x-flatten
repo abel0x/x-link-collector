@@ -1,0 +1,306 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 abel0x <https://github.com/abel0x>
+"""
+x-flatten -- pull every file out of the per-handle folders and lay them side by
+side in one directory.
+
+The downloader files media as x-media/<handle>/<tweet id>-<n>.<ext>, which is
+good for tracing a file back to its tweet and bad for scrubbing through a few
+hundred videos. This flattens that into a single folder.
+
+    ./x-flatten --dry-run        # see what would move, touch nothing
+    ./x-flatten                  # move them
+    ./x-flatten --undo           # put them back
+
+Every run writes a manifest next to the moved files, so --undo can reverse it
+exactly. Names do not collide: a tweet id is unique, so <tweet id>-<n> is too.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import shutil
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+MANIFEST = ".x-flatten-manifest.json"
+VIDEO_SUFFIXES = {".mp4", ".mkv", ".webm", ".mov", ".m4v", ".gif"}
+
+
+def home() -> Path:
+    """HOME on Unix, USERPROFILE on Windows."""
+    for var in ("HOME", "USERPROFILE"):
+        value = os.environ.get(var)
+        if value:
+            return Path(value)
+    return Path.home()
+
+
+def desktop_dir() -> Path:
+    """
+    The desktop directory, per platform, matching what the receiver does.
+
+      * Windows -- ~/Desktop, or the OneDrive-redirected one when that is where
+        it actually lives.
+      * macOS   -- always ~/Desktop; there is no XDG file.
+      * Linux   -- XDG_DESKTOP_DIR from ~/.config/user-dirs.dirs, which on a
+        localised install is not ~/Desktop (~/Masaustu, ~/Escritorio, ~/Bureau).
+    """
+    explicit = os.environ.get("XDG_DESKTOP_DIR")
+    if explicit:
+        return Path(explicit)
+
+    base = home()
+    if sys.platform == "win32":
+        onedrive = os.environ.get("OneDrive") or os.environ.get("OneDriveConsumer")
+        if onedrive and (Path(onedrive) / "Desktop").is_dir():
+            return Path(onedrive) / "Desktop"
+        return base / "Desktop"
+    if sys.platform == "darwin":
+        return base / "Desktop"
+
+    config = Path(os.environ.get("XDG_CONFIG_HOME") or base / ".config")
+    try:
+        for line in (config / "user-dirs.dirs").read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line.startswith("#") or not line.startswith("XDG_DESKTOP_DIR"):
+                continue
+            _, _, value = line.partition("=")
+            value = value.strip().strip('"')
+            if value.startswith("$HOME"):
+                return base / value[len("$HOME"):].lstrip("/")
+            if value:
+                return Path(value)
+    except OSError:
+        pass
+    return base / "Desktop"
+
+
+def human(size: float) -> str:
+    for unit in ("B", "KB", "MB", "GB"):
+        if size < 1024 or unit == "GB":
+            return f"{size:.0f} {unit}" if unit == "B" else f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size:.1f} GB"
+
+
+def collect(src: Path, dest: Path, videos_only: bool) -> list[Path]:
+    """
+    Every file under src, except the destination's own contents.
+
+    That exclusion is the whole ballgame when dest lives inside src -- the
+    default layout puts it at x-media/x-media -- or the second run would try to
+    move the files onto themselves.
+    """
+    dest = dest.resolve()
+    found = []
+    for path in sorted(src.rglob("*")):
+        if not path.is_file() or path.name.startswith("."):
+            continue
+        resolved = path.resolve()
+        if resolved == dest or dest in resolved.parents:
+            continue
+        if videos_only and path.suffix.lower() not in VIDEO_SUFFIXES:
+            continue
+        found.append(path)
+    return found
+
+
+def target_name(path: Path, src: Path, prefix_handle: bool) -> str:
+    if not prefix_handle:
+        return path.name
+    try:
+        handle = path.relative_to(src).parts[0]
+    except ValueError:
+        return path.name
+    return path.name if handle == path.name else f"{handle}-{path.name}"
+
+
+def unique(dest: Path, name: str, taken: set[str]) -> str:
+    """Tweet ids make collisions near-impossible, but never overwrite anyway."""
+    if name not in taken and not (dest / name).exists():
+        taken.add(name)
+        return name
+    stem, suffix = Path(name).stem, Path(name).suffix
+    for n in range(2, 10_000):
+        candidate = f"{stem}~{n}{suffix}"
+        if candidate not in taken and not (dest / candidate).exists():
+            taken.add(candidate)
+            return candidate
+    raise RuntimeError(f"cannot find a free name for {name}")
+
+
+def prune_empty(root: Path, dest: Path) -> int:
+    """Drop the per-handle folders left behind, deepest first."""
+    removed = 0
+    dest = dest.resolve()
+    for path in sorted(root.rglob("*"), key=lambda p: len(p.parts), reverse=True):
+        if not path.is_dir():
+            continue
+        resolved = path.resolve()
+        if resolved == dest or dest in resolved.parents or resolved == root.resolve():
+            continue
+        try:
+            path.rmdir()  # only succeeds when empty
+            removed += 1
+        except OSError:
+            pass
+    return removed
+
+
+def do_flatten(opts) -> int:
+    src, dest = opts.src, opts.dest
+    if not src.is_dir():
+        print(f"nothing at {src}", file=sys.stderr)
+        return 1
+
+    files = collect(src, dest, opts.videos_only)
+    if not files:
+        print(f"no files to move under {src}")
+        return 0
+
+    total = sum(f.stat().st_size for f in files)
+    verb = "copy" if opts.copy else "move"
+    print(f"{len(files)} file, {human(total)}  ->  {dest}")
+
+    taken: set[str] = set()
+    plan: list[tuple[Path, str]] = []
+    for path in files:
+        plan.append((path, unique(dest, target_name(path, src, opts.prefix_handle), taken)))
+
+    if opts.dry_run:
+        for path, name in plan[:20]:
+            print(f"  would {verb}  {path.relative_to(src)}  ->  {name}")
+        if len(plan) > 20:
+            print(f"  ... and {len(plan) - 20} more")
+        return 0
+
+    dest.mkdir(parents=True, exist_ok=True)
+    manifest: dict[str, str] = {}
+    moved = 0
+    for path, name in plan:
+        destination = dest / name
+        try:
+            if opts.copy:
+                shutil.copy2(path, destination)
+            else:
+                shutil.move(str(path), str(destination))
+            manifest[name] = str(path.relative_to(src))
+            moved += 1
+        except OSError as exc:
+            print(f"  ! {path.name}: {exc}", file=sys.stderr)
+        if moved % 100 == 0 and moved:
+            print(f"  {moved}/{len(plan)}...", flush=True)
+
+    # The manifest is what makes this reversible; write it before pruning.
+    if manifest and not opts.copy:
+        payload = {
+            "version": 1,
+            "at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+            "src": str(src),
+            "files": manifest,
+        }
+        (dest / MANIFEST).write_text(
+            json.dumps(payload, indent=1, ensure_ascii=False), encoding="utf-8"
+        )
+
+    pruned = prune_empty(src, dest) if not opts.copy else 0
+    print(f"{verb}d {moved} file" + (f", removed {pruned} empty folder" if pruned else ""))
+    if not opts.copy:
+        print(f"reversible with:  {Path(sys.argv[0]).name} --undo")
+    return 0
+
+
+def do_undo(opts) -> int:
+    manifest_path = opts.dest / MANIFEST
+    try:
+        data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        print(f"no manifest at {manifest_path}; nothing to undo", file=sys.stderr)
+        return 1
+
+    src = Path(data.get("src") or opts.src)
+    files: dict[str, str] = data.get("files") or {}
+    print(f"{len(files)} file  ->  back under {src}")
+    if opts.dry_run:
+        for name, original in list(files.items())[:20]:
+            print(f"  would move  {name}  ->  {original}")
+        if len(files) > 20:
+            print(f"  ... and {len(files) - 20} more")
+        return 0
+
+    restored = 0
+    for name, original in files.items():
+        current = opts.dest / name
+        target = src / original
+        if not current.exists():
+            continue
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(current), str(target))
+            restored += 1
+        except OSError as exc:
+            print(f"  ! {name}: {exc}", file=sys.stderr)
+
+    if restored == len(files):
+        manifest_path.unlink(missing_ok=True)
+        try:
+            opts.dest.rmdir()
+        except OSError:
+            pass
+    print(f"restored {restored} file")
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="x-flatten",
+        description=(
+            "Move every downloaded file out of its per-handle folder into one "
+            "flat directory.\nWith no options: <desktop>/x-media/*/* -> "
+            "<desktop>/x-media/x-media/"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""\
+examples:
+  x-flatten --dry-run              see what would move, touch nothing
+  x-flatten                        move them into x-media/x-media/
+  x-flatten --dest ~/Videolar/hepsi
+  x-flatten --prefix-handle        name files <handle>-<tweet id>-1.mp4
+  x-flatten --copy                 leave the originals in place
+  x-flatten --undo                 put everything back where it was
+""",
+    )
+    p.add_argument("--src", type=Path, metavar="DIR",
+                   help="folder to flatten (default: <desktop>/x-media)")
+    p.add_argument("--dest", type=Path, metavar="DIR",
+                   help="where the flat files go (default: <src>/x-media)")
+    p.add_argument("--copy", action="store_true",
+                   help="copy instead of moving; needs twice the disk space")
+    p.add_argument("--prefix-handle", action="store_true",
+                   help="keep the poster in the filename: <handle>-<tweet id>-1.mp4")
+    p.add_argument("--videos-only", action="store_true",
+                   help="leave images where they are")
+    p.add_argument("--dry-run", action="store_true",
+                   help="list what would happen, change nothing")
+    p.add_argument("--undo", action="store_true",
+                   help="reverse the last move using the manifest")
+    return p
+
+
+def main(argv: list[str]) -> int:
+    opts = build_parser().parse_args(argv)
+    opts.src = (opts.src or desktop_dir() / "x-media").expanduser()
+    opts.dest = (opts.dest or opts.src / "x-media").expanduser()
+    if opts.src.resolve() == opts.dest.resolve():
+        print("--src and --dest are the same folder", file=sys.stderr)
+        return 2
+    return do_undo(opts) if opts.undo else do_flatten(opts)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

@@ -1,0 +1,20 @@
+x-link-collector
+Copyright 2026 abel0x <https://github.com/abel0x>
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use
+this file except in compliance with the License. You may obtain a copy of the
+License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+All original source code, documentation and artwork in this repository are the
+copyright of abel0x.
+
+This product does not bundle or link any third-party code. At runtime the
+downloader invokes two external programs, each installed separately by the user
+and each under its own licence:
+
+  yt-dlp      -- The Unlicense    https://github.com/yt-dlp/yt-dlp
+  gallery-dl  -- GNU GPL v2.0     https://github.com/mikf/gallery-dl
+
+Neither is distributed with this work.
