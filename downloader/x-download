@@ -1,0 +1,975 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 abel0x <https://github.com/abel0x>
+"""
+x-download -- fetch the media behind every link in links.txt, at the best
+quality X serves.
+
+The actual extraction is delegated to yt-dlp (video) and gallery-dl (images).
+X's GraphQL endpoints and guest-token flow change every few weeks; those two
+projects track it, and a hand-rolled extractor here would rot within a month.
+What this script owns is everything around them: which links still need doing,
+retry policy, consistent naming, parallelism, and never downloading twice.
+
+    ./x-download                 # download whatever is new
+    ./x-download --watch         # keep running, pick up links as they arrive
+    ./x-download --status        # what has been collected so far
+    ./x-download --cookies vivaldi   # for protected / age-restricted tweets
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+import urllib.error
+import urllib.request
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+IS_WINDOWS = sys.platform == "win32"
+# A virtualenv puts its executables in Scripts\ on Windows and bin/ everywhere else.
+VENV_BIN = HERE / ".venv" / ("Scripts" if IS_WINDOWS else "bin")
+VENV_PYTHON = VENV_BIN / ("python.exe" if IS_WINDOWS else "python")
+STATE_FILE = ".x-download-state.json"
+
+# <handle>/<tweet id>-<n>.<ext> -- sorts chronologically, traces back to the
+# tweet, and collides for nothing. gallery-dl is configured to match.
+YTDLP_TEMPLATE = "%(uploader_id)s/%(webpage_url_basename)s-%(playlist_index|1)s.%(ext)s"
+GDL_DIRECTORY = '["{author[name]}"]'
+GDL_FILENAME = "{tweet_id}-{num}.{extension}"
+
+# Open JSON APIs that mirror a tweet's media without a login. Unlike the
+# ssstwitter-style download sites these are documented endpoints returning
+# JSON, not HTML pages behind a captcha -- but they are still third parties,
+# so they are only used when --mirror asks for them.
+MIRROR_APIS = (
+    "https://api.fxtwitter.com/status/{id}",
+    "https://api.vxtwitter.com/Twitter/status/{id}",
+)
+USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) x-download"
+RETRY_STATUS = {429, 500, 502, 503, 504}
+MIRROR_ATTEMPTS = 3
+# Stop rather than fill the disk: a few hundred videos add up.
+MIN_FREE_BYTES = 1 << 30
+
+DEFAULT_JOBS = 3          # X rate-limits hard above a handful of parallel fetches
+DEFAULT_TIMEOUT = 900     # seconds per link
+MAX_ATTEMPTS = 3          # before a link needs --retry-failed to be tried again
+
+DONE, NO_MEDIA, FAILED = "done", "no-media", "failed"
+
+NO_VIDEO_RE = re.compile(r"No video could be found|No media found|Unsupported URL", re.I)
+NO_RESULTS_RE = re.compile(r"No results for", re.I)
+# X hands out the same "no video" line for an age-gated tweet as for a text-only
+# one; gallery-dl's 'Unavailable' (and the syndication endpoint's tombstone) are
+# what distinguish "hidden from you" from "genuinely empty".
+RESTRICTED_RE = re.compile(r"'Unavailable'|TweetTombstone|tombstone", re.I)
+AUTH_RE = re.compile(
+    r"NSFW|age.restricted|log ?in|authenticat|cookies needed|not authorized|protected|rate.?limit",
+    re.I,
+)
+
+
+# --------------------------------------------------------------- environment
+
+def home() -> Path:
+    """HOME on Unix, USERPROFILE on Windows."""
+    for var in ("HOME", "USERPROFILE"):
+        value = os.environ.get(var)
+        if value:
+            return Path(value)
+    return Path.home()
+
+
+def desktop_dir() -> Path:
+    """
+    The desktop directory, per platform, matching what the receiver does.
+
+      * Windows -- ~/Desktop, or the OneDrive-redirected one when that is where
+        it actually lives.
+      * macOS   -- always ~/Desktop; there is no XDG file.
+      * Linux   -- XDG_DESKTOP_DIR from ~/.config/user-dirs.dirs, which on a
+        localised install is not ~/Desktop (~/Masaustu, ~/Escritorio, ~/Bureau).
+    """
+    explicit = os.environ.get("XDG_DESKTOP_DIR")
+    if explicit:
+        return Path(explicit)
+
+    base = home()
+    if sys.platform == "win32":
+        onedrive = os.environ.get("OneDrive") or os.environ.get("OneDriveConsumer")
+        if onedrive and (Path(onedrive) / "Desktop").is_dir():
+            return Path(onedrive) / "Desktop"
+        return base / "Desktop"
+    if sys.platform == "darwin":
+        return base / "Desktop"
+
+    config = Path(os.environ.get("XDG_CONFIG_HOME") or base / ".config")
+    try:
+        for line in (config / "user-dirs.dirs").read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line.startswith("#") or not line.startswith("XDG_DESKTOP_DIR"):
+                continue
+            _, _, value = line.partition("=")
+            value = value.strip().strip('"')
+            if value.startswith("$HOME"):
+                return base / value[len("$HOME"):].lstrip("/")
+            if value:
+                return Path(value)
+    except OSError:
+        pass
+    return base / "Desktop"
+
+
+def find_tool(module: str, script: str, override: str | None = None) -> list[str] | None:
+    """
+    The command that runs a tool, as an argv list.
+
+    Inside the venv this is `python -m <module>`, never the console script: pip
+    bakes an absolute shebang into that script at install time, so it breaks the
+    moment the project folder is renamed or moved. The venv's `python` is a
+    symlink to the real interpreter and survives being moved.
+    """
+    if override:
+        resolved = override if Path(override).exists() else shutil.which(override)
+        return [resolved] if resolved else None
+    if VENV_PYTHON.exists():
+        return [str(VENV_PYTHON), "-m", module]
+    found = shutil.which(script)
+    return [found] if found else None
+
+
+def human(size: int) -> str:
+    step = float(size)
+    for unit in ("B", "KB", "MB", "GB"):
+        if step < 1024 or unit == "GB":
+            return f"{step:.0f} {unit}" if unit == "B" else f"{step:.1f} {unit}"
+        step /= 1024
+    return f"{step:.1f} GB"
+
+
+def now() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+# --------------------------------------------------------------------- state
+
+class State:
+    """What has already been downloaded, so re-runs are cheap and idempotent."""
+
+    def __init__(self, path: Path):
+        self.path = path
+        self.lock = threading.Lock()
+        self.entries: dict[str, dict] = {}
+        self._dirty = False
+        self._last_save = 0.0
+        self.load()
+
+    def load(self) -> None:
+        try:
+            data = json.loads(self.path.read_text(encoding="utf-8"))
+            if isinstance(data, dict) and isinstance(data.get("entries"), dict):
+                self.entries = data["entries"]
+        except (OSError, ValueError):
+            self.entries = {}  # missing or corrupt: start over, files stay put
+
+    def save(self, force: bool = False) -> None:
+        with self.lock:
+            if not self._dirty and not force:
+                return
+            # Debounced: a long run must not rewrite this file per link.
+            if not force and time.monotonic() - self._last_save < 1.0:
+                return
+            payload = {"version": 1, "updated": now(), "entries": self.entries}
+            self._last_save = time.monotonic()
+            self._dirty = False
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(
+                "w", dir=self.path.parent, delete=False, encoding="utf-8"
+            ) as tmp:
+                json.dump(payload, tmp, indent=1, ensure_ascii=False)
+                temp_name = tmp.name
+            os.replace(temp_name, self.path)  # atomic: no half-written state
+        except OSError as exc:
+            print(f"  ! could not save state: {exc}", file=sys.stderr)
+
+    def get(self, url: str) -> dict:
+        with self.lock:
+            return dict(self.entries.get(url, {}))
+
+    def record(self, url: str, **fields) -> None:
+        with self.lock:
+            entry = self.entries.setdefault(url, {})
+            entry.update(fields)
+            entry["at"] = now()
+            self._dirty = True
+
+    def counts(self) -> dict[str, int]:
+        with self.lock:
+            out: dict[str, int] = {}
+            for entry in self.entries.values():
+                status = entry.get("status", "?")
+                out[status] = out.get(status, 0) + 1
+            return out
+
+
+# ----------------------------------------------------------------- downloads
+
+@dataclass
+class Tools:
+    """Each is a full argv prefix, e.g. ['/path/.venv/bin/python', '-m', 'yt_dlp']."""
+
+    ytdlp: list[str] | None
+    gallery_dl: list[str] | None
+
+
+@dataclass
+class Result:
+    status: str
+    files: list[str] = field(default_factory=list)
+    error: str = ""
+    tool: str = ""
+    needs_auth: bool = False
+    # True when retrying could never help -- the input is simply not a tweet.
+    permanent: bool = False
+
+
+def cookie_args(cookies: str | None) -> list[str]:
+    """`--cookies vivaldi` or `--cookies /path/to/cookies.txt`; both tools agree."""
+    if not cookies:
+        return []
+    if os.sep in cookies or Path(cookies).exists():
+        return ["--cookies", cookies]
+    return ["--cookies-from-browser", cookies]
+
+
+def run(cmd: list[str], timeout: int) -> tuple[int, str]:
+    try:
+        proc = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=timeout, check=False
+        )
+    except subprocess.TimeoutExpired:
+        return 124, f"timed out after {timeout}s"
+    except OSError as exc:
+        return 127, str(exc)
+    return proc.returncode, (proc.stdout or "") + (proc.stderr or "")
+
+
+def run_ytdlp(url: str, opts, tools: Tools, api: str = "graphql") -> Result:
+    """
+    Video path. yt-dlp's default selection already picks the best X serves.
+
+    `api` chooses the backend it talks to. "graphql" is the normal one;
+    "syndication" is X's own embed endpoint, which needs no login and reaches
+    some tweets the guest GraphQL path refuses. Measured on a real tweet the
+    two return byte-identical media, so the fallback costs no quality.
+    """
+    handle, paths_file = tempfile.mkstemp(prefix="x-download-", suffix=".txt")
+    os.close(handle)
+    cmd = [
+        *tools.ytdlp,
+        "--ignore-config",          # never inherit a global yt-dlp config
+        "--no-warnings", "--no-progress", "--no-colors",
+        "--no-simulate",            # --print-to-file would otherwise imply --simulate
+        "--print-to-file", "after_move:filepath", paths_file,
+        "-S", "res,fps,vbr,abr,br",     # highest resolution, then highest bitrate
+        "--merge-output-format", "mp4",  # stream copy only; never re-encode
+        "--concurrent-fragments", "4",
+        "--retries", "5", "--fragment-retries", "20", "--socket-timeout", "20",
+        "--trim-filenames", "200",
+        "-P", str(opts.out),
+        "-o", YTDLP_TEMPLATE,
+    ]
+    if api != "graphql":
+        cmd += ["--extractor-args", f"twitter:api={api}"]
+    if opts.metadata:
+        cmd.append("--write-info-json")
+    cmd += cookie_args(opts.cookies)
+    cmd += ["--", url]
+
+    code, output = run(cmd, opts.timeout)
+    try:
+        files = [
+            line.strip()
+            for line in Path(paths_file).read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+    except OSError:
+        files = []
+    finally:
+        Path(paths_file).unlink(missing_ok=True)
+
+    name = "yt-dlp" if api == "graphql" else f"yt-dlp/{api}"
+    if code == 0 and files:
+        return Result(DONE, files=relative(files, opts.out), tool=name)
+    if NO_VIDEO_RE.search(output):
+        return Result(NO_MEDIA, tool=name)
+    return Result(
+        FAILED,
+        error=last_error(output),
+        tool=name,
+        needs_auth=bool(AUTH_RE.search(output)),
+    )
+
+
+def run_gallery_dl(url: str, opts, tools: Tools) -> Result:
+    """Image path. gallery-dl takes the `:orig` variant, which is the upload."""
+    cmd = [
+        *tools.gallery_dl,
+        "--config-ignore",
+        "--destination", str(opts.out),
+        "--option", f"directory={GDL_DIRECTORY}",
+        "--option", "size=orig,large,medium",
+        "--filename", GDL_FILENAME,
+    ]
+    if opts.metadata:
+        cmd.append("--write-metadata")
+    cmd += cookie_args(opts.cookies)
+    cmd.append(url)
+
+    code, output = run(cmd, opts.timeout)
+    files = [
+        line.strip()
+        for line in output.splitlines()
+        if line.strip() and Path(line.strip()).is_file()
+    ]
+    if files:
+        return Result(DONE, files=relative(files, opts.out), tool="gallery-dl")
+    if RESTRICTED_RE.search(output):
+        return Result(
+            FAILED,
+            error="tweet is restricted (age-gated or hidden from logged-out viewers)",
+            tool="gallery-dl",
+            needs_auth=True,
+        )
+    if NO_RESULTS_RE.search(output):
+        return Result(NO_MEDIA, tool="gallery-dl")
+    if code == 0:
+        return Result(NO_MEDIA, tool="gallery-dl")
+    return Result(
+        FAILED,
+        error=last_error(output),
+        tool="gallery-dl",
+        needs_auth=bool(AUTH_RE.search(output)),
+    )
+
+
+# Reserved device names; illegal as a file or folder name on Windows even with
+# an extension. Applied on every platform so a synced folder matches everywhere.
+WINDOWS_RESERVED = {
+    "con", "prn", "aux", "nul",
+    *(f"com{n}" for n in range(1, 10)),
+    *(f"lpt{n}" for n in range(1, 10)),
+}
+
+
+def safe_component(name: str) -> str:
+    """One path component the filesystem will accept, on any platform."""
+    cleaned = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", name).rstrip(". ")
+    if not cleaned:
+        return "_"
+    if cleaned.lower().split(".")[0] in WINDOWS_RESERVED:
+        cleaned = f"_{cleaned}"
+    return cleaned
+
+
+def tweet_id(url: str) -> str | None:
+    match = re.search(r"/status(?:es)?/(\d{1,25})", url)
+    return match.group(1) if match else None
+
+
+def http_json(url: str, timeout: int) -> dict | None:
+    """A few hundred links will hit a rate limit or a blip; back off and retry."""
+    for attempt in range(MIRROR_ATTEMPTS):
+        request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+        try:
+            with urllib.request.urlopen(request, timeout=min(timeout, 30)) as response:
+                return json.loads(response.read().decode("utf-8", "replace"))
+        except urllib.error.HTTPError as exc:
+            if exc.code not in RETRY_STATUS:
+                return None
+        except (urllib.error.URLError, OSError, ValueError):
+            pass
+        if attempt < MIRROR_ATTEMPTS - 1:
+            time.sleep(2**attempt)
+    return None
+
+
+def best_variant(media: dict) -> str | None:
+    """Highest-bitrate mp4 on offer; photos at :orig, which is the upload."""
+    url = media.get("url")
+    if media.get("type") == "photo" and url:
+        if "name=" in url:
+            return url
+        return url + ("&" if "?" in url else "?") + "name=orig"
+    mp4s = [
+        f for f in (media.get("formats") or [])
+        if f.get("container") == "mp4" and f.get("bitrate")
+    ]
+    if mp4s:
+        return max(mp4s, key=lambda f: f["bitrate"])["url"]
+    return url
+
+
+def mirror_media(data: dict) -> tuple[str, list[dict]]:
+    """Both APIs describe the same thing in different shapes."""
+    tweet = data.get("tweet")
+    if isinstance(tweet, dict):  # fxtwitter
+        handle = (tweet.get("author") or {}).get("screen_name") or "unknown"
+        return handle, list((tweet.get("media") or {}).get("all") or [])
+    if data.get("media_extended"):  # vxtwitter
+        return data.get("user_screen_name") or "unknown", list(data["media_extended"])
+    return "unknown", []
+
+
+def download_file(url: str, dest: Path, timeout: int) -> bool:
+    part = dest.with_name(dest.name + ".part")
+    for attempt in range(MIRROR_ATTEMPTS):
+        request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+        try:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                with open(part, "wb") as out:
+                    shutil.copyfileobj(response, out, 1 << 16)
+            part.replace(dest)
+            return True
+        except urllib.error.HTTPError as exc:
+            part.unlink(missing_ok=True)
+            if exc.code not in RETRY_STATUS:
+                return False
+        except (urllib.error.URLError, OSError):
+            part.unlink(missing_ok=True)
+        if attempt < MIRROR_ATTEMPTS - 1:
+            time.sleep(2**attempt)
+    return False
+
+
+def run_mirror(url: str, opts) -> Result:
+    """Last resort: ask an open mirror API for the media URLs, then fetch them."""
+    twid = tweet_id(url)
+    if not twid:
+        return Result(FAILED, error="not a tweet URL", tool="mirror", permanent=True)
+
+    saw_tweet = False
+    for api in MIRROR_APIS:
+        data = http_json(api.format(id=twid), opts.timeout)
+        if not data:
+            continue
+        handle, items = mirror_media(data)
+        # The tweet resolved; it simply carries nothing to download. That is a
+        # different answer from "not found", and must not be retried forever.
+        saw_tweet = saw_tweet or isinstance(data.get("tweet"), dict) or "conversationID" in data
+        if not items:
+            continue
+        files = []
+        for index, media in enumerate(items, 1):
+            source = best_variant(media)
+            if not source:
+                continue
+            suffix = Path(source.split("?")[0]).suffix or ".bin"
+            dest = opts.out / safe_component(handle) / f"{twid}-{index}{suffix}"
+            if download_file(source, dest, opts.timeout):
+                files.append(str(dest.relative_to(opts.out)))
+        if files:
+            return Result(DONE, files=files, tool="mirror")
+    if saw_tweet:
+        return Result(NO_MEDIA, tool="mirror")
+    return Result(FAILED, error="no mirror had this tweet", tool="mirror")
+
+
+def relative(paths: list[str], root: Path) -> list[str]:
+    out = []
+    for p in paths:
+        try:
+            out.append(str(Path(p).resolve().relative_to(root.resolve())))
+        except ValueError:
+            out.append(p)
+    return out
+
+
+# The tools report the same handful of situations in verbose, noisy ways.
+# Translating them here is what makes a failed run actionable.
+ERROR_MAP = [
+    (re.compile(r"KeyError - 'result'|Not Found|does not exist", re.I),
+     "tweet not found (deleted, private account, or bad id)"),
+    (re.compile(r"'Unavailable'|TweetTombstone|age-gated", re.I),
+     "restricted tweet -- retry with --mirror, or --cookies vivaldi"),
+    (re.compile(r"AuthRequired|cookies needed|log ?in required|NSFW|age.restricted", re.I),
+     "login required -- retry with --cookies vivaldi"),
+    (re.compile(r"rate.?limit|HTTP Error 429", re.I),
+     "rate limited by X -- wait a bit, or lower --jobs"),
+    (re.compile(r"suspended", re.I), "account suspended"),
+    (re.compile(r"Unable to download webpage|Connection|Temporary failure|timed out", re.I),
+     "network error"),
+]
+
+# "...report this issue on https://..." helps nobody reading a run summary.
+BOILERPLATE = re.compile(
+    r"\s*(Please run gallery-dl again.*|please report this issue.*|"
+    r"Confirm you are on the latest version.*)$",
+    re.I,
+)
+
+
+def last_error(output: str) -> str:
+    """The most useful line of a tool's output, trimmed for a log entry."""
+    for pattern, message in ERROR_MAP:
+        if pattern.search(output):
+            return message
+    lines = [l.strip() for l in output.splitlines() if l.strip()]
+    for line in reversed(lines):
+        if re.search(r"error|unable|failed|unsupported", line, re.I):
+            return BOILERPLATE.sub("", line)[:300].strip()
+    return (lines[-1] if lines else "no output")[:300]
+
+
+def fetch(url: str, opts, tools: Tools) -> Result:
+    """
+    Try each route in turn, cheapest and most private first:
+
+      1. yt-dlp GraphQL   -- guest token, or your session when --cookies is set
+      2. yt-dlp syndication -- X's own embed endpoint, no login, reaches some
+                               tweets the guest GraphQL path refuses
+      3. gallery-dl       -- images
+      4. mirror API       -- third party, only with --mirror
+
+    A NO_MEDIA verdict means the tool saw the tweet and it holds no video, so
+    only an outright failure is worth escalating to another X backend.
+    """
+    # When every link is known to be age-gated, X's three routes are 3.3s and
+    # three refused requests of pure waste per link. Skip straight to route 4.
+    if opts.mirror_only:
+        return run_mirror(url, opts)
+
+    attempts: list[Result] = []
+
+    if tools.ytdlp:
+        first = run_ytdlp(url, opts, tools)
+        if first.status == DONE:
+            return first
+        attempts.append(first)
+        if first.status == FAILED:
+            second = run_ytdlp(url, opts, tools, api="syndication")
+            if second.status == DONE:
+                return second
+            attempts.append(second)
+
+    if tools.gallery_dl:
+        images = run_gallery_dl(url, opts, tools)
+        if images.status == DONE:
+            return images
+        attempts.append(images)
+
+    if opts.mirror and any(a.status == FAILED for a in attempts):
+        mirrored = run_mirror(url, opts)
+        if mirrored.status == DONE:
+            return mirrored
+        attempts.append(mirrored)
+
+    return summarise(attempts)
+
+
+def summarise(attempts: list[Result]) -> Result:
+    """
+    Nothing produced media. A hard failure outranks a media-less verdict: X
+    answers "no video could be found" for age-gated tweets too, and NO_MEDIA is
+    terminal, so trusting it would retire those links permanently.
+    """
+    if not attempts:
+        return Result(NO_MEDIA)
+    for attempt in attempts:
+        if attempt.status == FAILED:
+            return attempt
+    return attempts[0]
+
+
+# ------------------------------------------------------------------ planning
+
+def read_links(path: Path) -> tuple[list[str], int, int]:
+    """
+    Links in file order, deduplicated. Returns (links, collapsed, skipped).
+
+    The key is the tweet id, not the URL text: x.com serves the same tweet under
+    any handle in the path, so /alice/status/1 and /bob/status/1 are one link.
+    The receiver already applies this rule when collecting, but a hand-edited or
+    imported list has not been through it.
+    """
+    try:
+        # utf-8-sig drops the byte-order mark Notepad and Excel like to add;
+        # left in place it would become part of the first URL.
+        text = path.read_text(encoding="utf-8-sig")
+    except FileNotFoundError:
+        return [], 0, 0
+    except UnicodeDecodeError:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    seen: set[str] = set()
+    links: list[str] = []
+    collapsed = skipped = 0
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if not line.lower().startswith(("http://", "https://")):
+            # A bare status id is a reasonable thing to paste; anything else in
+            # a hand-written list is a note, not a link, and is dropped here
+            # rather than failing once per run forever.
+            if re.fullmatch(r"\d{15,25}", line):
+                line = f"https://x.com/i/web/status/{line}"
+            else:
+                skipped += 1
+                continue
+        twid = tweet_id(line)
+        key = f"tweet:{twid}" if twid else line
+        if key in seen:
+            collapsed += 1
+            continue
+        seen.add(key)
+        links.append(line)
+    return links, collapsed, skipped
+
+
+def pending(links: list[str], state: State, opts) -> list[str]:
+    out = []
+    for url in links:
+        entry = state.get(url)
+        status = entry.get("status")
+        if status == DONE:
+            continue
+        if status == NO_MEDIA and not opts.retry_failed:
+            continue
+        if (
+            status == FAILED
+            and not opts.retry_failed
+            and entry.get("attempts", 0) >= MAX_ATTEMPTS
+        ):
+            continue
+        out.append(url)
+    return out
+
+
+# ---------------------------------------------------------------------- main
+
+def chunked(items: list[str], size: int) -> list[list[str]]:
+    return [items[i : i + size] for i in range(0, len(items), size)]
+
+
+def process(links: list[str], state: State, opts, tools: Tools) -> dict[str, int]:
+    outstanding = pending(links, state, opts)
+    tally = {DONE: 0, NO_MEDIA: 0, FAILED: 0, "auth": 0, "processed": 0, "left": 0}
+    if not outstanding:
+        return tally
+
+    todo = outstanding[: opts.limit] if opts.limit else outstanding
+    if opts.dry_run:
+        for url in todo:
+            print(f"  would download {url}")
+        return tally
+
+    route = "mirror only" if opts.mirror_only else "X, then mirror" if opts.mirror else "X"
+    free = shutil.disk_usage(opts.out).free
+    scope = f"{len(todo)} link"
+    if len(todo) < len(outstanding):
+        scope += f" of {len(outstanding)} outstanding"
+    if opts.batch:
+        scope += f", in batches of {opts.batch}"
+    print(
+        f"{scope} ({opts.jobs} at a time, {route}); {human(free)} free",
+        flush=True,
+    )
+    stop = threading.Event()
+    say = threading.Lock()
+    counter = {"n": 0}
+    started = time.monotonic()
+
+    def one(url: str) -> None:
+        if stop.is_set():
+            return
+        if shutil.disk_usage(opts.out).free < MIN_FREE_BYTES:
+            if not stop.is_set():
+                stop.set()
+                print(f"stopping: under {human(MIN_FREE_BYTES)} of disk left",
+                      file=sys.stderr, flush=True)
+            return
+        entry = state.get(url)
+        result = fetch(url, opts, tools)
+        state.record(
+            url,
+            status=result.status,
+            files=result.files or entry.get("files", []),
+            error=result.error,
+            tool=result.tool,
+            # A permanent failure is retired immediately instead of burning
+            # three runs on a line that can never succeed.
+            attempts=MAX_ATTEMPTS if result.permanent else entry.get("attempts", 0) + 1,
+        )
+        state.save()
+        with say:
+            counter["n"] += 1
+            width = len(str(len(todo)))
+            prefix = f"[{counter['n']:>{width}}/{len(todo)}]"
+            eta = remaining(started, counter["n"], len(todo))
+            if result.status == DONE:
+                tally[DONE] += 1
+                size = total_size(result.files, opts.out)
+                names = ", ".join(result.files)
+                print(f"{prefix} ok  {names}  ({human(size)}){eta}", flush=True)
+            elif result.status == NO_MEDIA:
+                tally[NO_MEDIA] += 1
+                print(f"{prefix} --  no media in {url}{eta}", flush=True)
+            else:
+                tally[FAILED] += 1
+                if result.needs_auth:
+                    tally["auth"] += 1
+                print(f"{prefix} !!  {url}\n      {result.error}", file=sys.stderr, flush=True)
+
+    groups = chunked(todo, opts.batch) if opts.batch else [todo]
+    try:
+        for number, group in enumerate(groups, 1):
+            if stop.is_set():
+                break
+            with ThreadPoolExecutor(max_workers=opts.jobs) as pool:
+                list(pool.map(one, group))
+            if opts.batch and number < len(groups) and not stop.is_set():
+                print(
+                    f"     -- batch {number}/{len(groups)} done, "
+                    f"{len(todo) - counter['n']} link still queued",
+                    flush=True,
+                )
+                if opts.pause:
+                    time.sleep(opts.pause)
+    except KeyboardInterrupt:
+        stop.set()
+        print("\ninterrupted; progress saved", file=sys.stderr)
+        raise
+    finally:
+        state.save(force=True)
+        tally["processed"] = counter["n"]
+        tally["left"] = len(outstanding) - counter["n"]
+    return tally
+
+
+def remaining(started: float, done: int, total: int) -> str:
+    """A rough ETA. Worth showing: a few hundred videos is not a quick run."""
+    left = total - done
+    if left <= 0 or done == 0:
+        return ""
+    seconds = (time.monotonic() - started) / done * left
+    if seconds >= 3600:
+        return f"  ~{int(seconds // 3600)}h{int(seconds % 3600 // 60):02d}m left"
+    if seconds >= 60:
+        return f"  ~{int(seconds // 60)}m left"
+    return f"  ~{int(seconds)}s left"
+
+
+def total_size(files: list[str], root: Path) -> int:
+    size = 0
+    for f in files:
+        try:
+            size += (root / f).stat().st_size
+        except OSError:
+            pass
+    return size
+
+
+def show_status(links: list[str], state: State, opts) -> None:
+    counts = state.counts()
+    todo = pending(links, state, opts)
+    settled = len(links) - len(todo)
+    percent = (settled * 100 // len(links)) if links else 0
+    print(f"links file : {opts.links}  ({len(links)} link)")
+    print(f"media dir  : {opts.out}")
+    print(f"progress   : {settled} / {len(links)}  ({percent}%)")
+    print(f"downloaded : {counts.get(DONE, 0)}")
+    print(f"no media   : {counts.get(NO_MEDIA, 0)}")
+    print(f"failed     : {counts.get(FAILED, 0)}")
+    print(f"pending    : {len(todo)}")
+    if opts.out.is_dir():
+        files = [p for p in opts.out.rglob("*") if p.is_file() and p.name != STATE_FILE]
+        size = sum(p.stat().st_size for p in files)
+        print(f"on disk    : {len(files)} file, {human(size)}")
+
+
+EXAMPLES = """\
+common runs:
+  x-download                            download whatever is new
+  x-download --status                   what has been collected so far
+  x-download --dry-run                  list what it would fetch, download nothing
+
+when the links are age-restricted:
+  x-download --mirror-only              skip X's refusals, go straight to mirrors
+  x-download --cookies vivaldi          use your own X session instead
+
+working through a long list:
+  x-download --mirror-only --limit 299  do 299, stop, remember the position
+  x-download --mirror-only              carry on with the rest
+  x-download --mirror-only --batch 100 --pause 30
+
+Stopping is free. Every finished link is recorded before the next one starts,
+so Ctrl-C, --limit and --batch all resume from where they left off; a link is
+never downloaded twice. Links are deduplicated on the tweet id, so the same
+tweet under two different handles counts once.
+"""
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="x-download",
+        description=(
+            "Download the media behind the links collected in links.txt.\n"
+            "With no options: reads <desktop>/links.txt, fetches every link not "
+            "fetched yet\ninto <desktop>/x-media, 3 at a time."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=EXAMPLES,
+    )
+
+    where = p.add_argument_group("input and output")
+    where.add_argument("--links", type=Path, metavar="PATH",
+                       help="links file (default: <desktop>/links.txt)")
+    where.add_argument("--out", type=Path, metavar="DIR",
+                       help="media directory (default: <desktop>/x-media)")
+    where.add_argument("--metadata", action="store_true",
+                       help="also write the tweet's metadata alongside the media")
+
+    pace = p.add_argument_group("how much, how fast")
+    pace.add_argument("-j", "--jobs", type=int, default=DEFAULT_JOBS, metavar="N",
+                      help=f"parallel downloads (default: {DEFAULT_JOBS}; X rate-limits above ~5)")
+    pace.add_argument("--limit", type=int, metavar="N",
+                      help="stop after N links this run; the rest stay queued")
+    pace.add_argument("--batch", type=int, metavar="N",
+                      help="work the queue in groups of N, reporting after each "
+                           "(keep N >= --jobs)")
+    pace.add_argument("--pause", type=int, default=0, metavar="SECONDS",
+                      help="wait between batches (use with --batch)")
+    pace.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT, metavar="SECONDS",
+                      help=f"per-link timeout (default: {DEFAULT_TIMEOUT})")
+    pace.add_argument("--watch", nargs="?", type=int, const=30, metavar="SECONDS",
+                      help="keep running, picking up new links (default: every 30s)")
+
+    gated = p.add_argument_group("when X refuses a link")
+    gated.add_argument("--cookies", metavar="BROWSER|FILE",
+                       help="use your X session: a browser name (vivaldi, firefox) "
+                            "or a cookies.txt path")
+    gated.add_argument("--mirror", action="store_true",
+                       help="after X refuses, ask an open mirror API (fxtwitter, "
+                            "vxtwitter); sends the tweet id to a third party")
+    gated.add_argument("--mirror-only", action="store_true",
+                       help="skip X's routes entirely and use the mirrors directly; "
+                            "much faster when every link is age-restricted")
+    gated.add_argument("--retry-failed", action="store_true",
+                       help="re-queue links previously recorded as failed or media-less")
+
+    look = p.add_argument_group("look without downloading")
+    look.add_argument("--status", action="store_true",
+                      help="print progress and counts, then exit")
+    look.add_argument("--dry-run", action="store_true",
+                      help="list the links that would be fetched, then exit")
+
+    tools = p.add_argument_group("tool locations")
+    tools.add_argument("--yt-dlp", dest="ytdlp_path", metavar="PATH",
+                       help="path to yt-dlp (default: downloader/.venv, then $PATH)")
+    tools.add_argument("--gallery-dl", dest="gallery_dl_path", metavar="PATH",
+                       help="path to gallery-dl (default: downloader/.venv, then $PATH)")
+    return p
+
+
+def main(argv: list[str]) -> int:
+    opts = build_parser().parse_args(argv)
+    if opts.mirror_only:
+        opts.mirror = True
+    opts.links = (opts.links or desktop_dir() / "links.txt").expanduser()
+    opts.out = (opts.out or desktop_dir() / "x-media").expanduser()
+
+    tools = Tools(
+        ytdlp=find_tool("yt_dlp", "yt-dlp", opts.ytdlp_path),
+        gallery_dl=find_tool("gallery_dl", "gallery-dl", opts.gallery_dl_path),
+    )
+    if not tools.ytdlp and not tools.gallery_dl:
+        print(
+            "neither yt-dlp nor gallery-dl found.\n"
+            "  Linux/macOS:  make downloader-setup\n"
+            "  Windows:      .\\scripts\\setup.ps1\n"
+            "  or anywhere:  pipx install yt-dlp gallery-dl",
+            file=sys.stderr,
+        )
+        return 1
+    if not tools.ytdlp:
+        print("note: yt-dlp missing, videos will be skipped", file=sys.stderr)
+    if not tools.gallery_dl:
+        print("note: gallery-dl missing, image-only tweets will be skipped", file=sys.stderr)
+
+    opts.out.mkdir(parents=True, exist_ok=True)
+    state = State(opts.out / STATE_FILE)
+    links, collapsed, skipped = read_links(opts.links)
+    if collapsed:
+        print(f"note: {collapsed} duplicate link collapsed (same tweet id)",
+              file=sys.stderr)
+    if skipped:
+        print(f"note: {skipped} line skipped (not a link)", file=sys.stderr)
+
+    if opts.status:
+        show_status(links, state, opts)
+        return 0
+    if not opts.links.exists():
+        print(f"no links file at {opts.links}", file=sys.stderr)
+        print("is the receiver running? try: make status", file=sys.stderr)
+        return 1
+    if opts.jobs < 1:
+        print("--jobs must be at least 1", file=sys.stderr)
+        return 2
+    if opts.jobs > 5:
+        print(f"warning: {opts.jobs} parallel downloads will trip X's rate limit",
+              file=sys.stderr)
+
+    try:
+        tally = process(links, state, opts, tools)
+        report(tally, opts)
+        while opts.watch:
+            time.sleep(opts.watch)
+            links, _, _ = read_links(opts.links)
+            tally = process(links, state, opts, tools)
+            if any(tally[k] for k in (DONE, NO_MEDIA, FAILED)):
+                report(tally, opts)
+    except KeyboardInterrupt:
+        return 130
+    finally:
+        state.save(force=True)
+    return 0
+
+
+def report(tally: dict[str, int], opts) -> None:
+    if not any(tally[k] for k in (DONE, NO_MEDIA, FAILED)):
+        return
+    print(
+        f"done: {tally[DONE]} downloaded, {tally[NO_MEDIA]} without media, "
+        f"{tally[FAILED]} failed  ->  {opts.out}"
+    )
+    if tally.get("left"):
+        print(
+            f"stopped after {tally['processed']}; {tally['left']} link still "
+            f"pending -- run the same command again to carry on"
+        )
+    if tally["auth"] and not opts.cookies:
+        print(
+            f"{tally['auth']} link needed a login. Either use your own session:\n"
+            f"  ./x-download --cookies vivaldi --retry-failed\n"
+            f"or try the open mirror APIs:\n"
+            f"  ./x-download --mirror --retry-failed",
+            file=sys.stderr,
+        )
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

@@ -1,0 +1,19 @@
+[package]
+name = "x-link-receiver"
+version = "1.0.0"
+edition = "2021"
+rust-version = "1.65"
+description = "Zero-dependency localhost HTTP receiver that appends collected links to a text file."
+license = "MIT"
+
+# No dependencies. On purpose: `cargo build --release` works offline and the
+# binary is a few hundred KiB with no async runtime underneath it.
+[dependencies]
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+# NOTE: panic = "abort" is deliberately NOT set. A panic while parsing a
+# malformed request must kill that connection thread, not the daemon.

@@ -1,0 +1,53 @@
+# ---------------------------------------------------------------------------
+# Personal data. These are YOUR links and YOUR downloads -- never publish them.
+# The patterns are deliberately broad: this repo lives next to real collections.
+# ---------------------------------------------------------------------------
+links.txt
+*links*.txt
+x-media/
+media/
+*.mp4
+*.mkv
+*.webm
+*.mov
+*.m4v
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.webp
+.x-download-state.json
+.x-flatten-manifest.json
+cookies.txt
+*.cookies
+
+# Art that ships is whitelisted back in above the ignores.
+!extension/icons/*.png
+!docs/**/*.png
+!docs/**/*.svg
+
+# Logo working files: the repo carries the masters, not every exported size.
+# The other exports stay on disk, they are just not worth 1.8 MB of history.
+docs/logo/*
+!docs/logo/abel-neon-1024.png
+!docs/logo/abel-neon.svg
+
+# ---------------------------------------------------------------------------
+# Build output
+# ---------------------------------------------------------------------------
+receiver/target/
+downloader/.venv/
+dist/
+*.zip
+
+# ---------------------------------------------------------------------------
+# Editors and operating systems
+# ---------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+__pycache__/
+*.pyc

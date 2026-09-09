@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  macOS per-user agent. Install with `make service`, or by hand:
+    cp com.abel0x.x-link-receiver.plist ~/Library/LaunchAgents/
+    launchctl load -w ~/Library/LaunchAgents/com.abel0x.x-link-receiver.plist
+  ProgramArguments must be an absolute path; `make service` rewrites it.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.abel0x.x-link-receiver</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>__BIN__</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>/tmp/x-link-receiver.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/x-link-receiver.log</string>
+
+  <key>ProcessType</key>
+  <string>Background</string>
+</dict>
+</plist>
