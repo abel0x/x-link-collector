@@ -151,8 +151,8 @@ Chromium and Firefox.
 ## URL cleaning
 
 ```
-https://mobile.twitter.com/jack/status/20/photo/1?s=20&t=TRACKING#top
-                        ->  https://x.com/jack/status/20
+https://mobile.twitter.com/someone/status/1234567890/photo/1?s=20&t=TRACKING#top
+                        ->  https://x.com/someone/status/1234567890
 ```
 
 Deduplication keys on the **tweet id**, because x.com serves the same tweet under

@@ -126,14 +126,14 @@ test('canonicalises status URLs and rejects everything else', () => {
   const clean = sandbox.canonicalTweetUrl;
 
   for (const dirty of [
-    'https://x.com/jack/status/20',
-    'http://twitter.com/jack/status/20',
-    'https://mobile.twitter.com/jack/status/20?s=20&t=TRACKING',
-    'https://www.x.com/jack/status/20/photo/1',
-    'https://x.com/jack/status/20#anchor',
-    'https://x.com/jack/statuses/20',
+    'https://x.com/someone/status/1234567890',
+    'http://twitter.com/someone/status/1234567890',
+    'https://mobile.twitter.com/someone/status/1234567890?s=20&t=TRACKING',
+    'https://www.x.com/someone/status/1234567890/photo/1',
+    'https://x.com/someone/status/1234567890#anchor',
+    'https://x.com/someone/statuses/1234567890',
   ]) {
-    assert.equal(clean(dirty), 'https://x.com/jack/status/20', dirty);
+    assert.equal(clean(dirty), 'https://x.com/someone/status/1234567890', dirty);
   }
 
   assert.equal(clean('https://x.com/i/web/status/77'), 'https://x.com/i/web/status/77');
@@ -141,11 +141,11 @@ test('canonicalises status URLs and rejects everything else', () => {
 
   for (const notATweet of [
     'https://x.com/home',
-    'https://x.com/jack',
+    'https://x.com/someone',
     'https://x.com/search?q=rust',
-    'https://x.com/jack/status/notanumber',
-    'https://example.com/jack/status/20',
-    'https://x.com.evil.tld/jack/status/20',
+    'https://x.com/someone/status/notanumber',
+    'https://example.com/someone/status/1234567890',
+    'https://x.com.evil.tld/someone/status/1234567890',
     'about:blank',
     'chrome://newtab/',
     '',
@@ -158,18 +158,18 @@ test('canonicalises status URLs and rejects everything else', () => {
 
 test('captures a middle-clicked tweet and closes its tab', async () => {
   const { on, posts, removed } = loadWorker();
-  await openTab(on, 7, 'https://x.com/jack/status/20?s=20');
+  await openTab(on, 7, 'https://x.com/someone/status/1234567890?s=20');
 
   assert.equal(posts().length, 1);
   assert.equal(posts()[0].url, 'http://127.0.0.1:9876/');
-  assert.equal(posts()[0].body, 'https://x.com/jack/status/20');
+  assert.equal(posts()[0].body, 'https://x.com/someone/status/1234567890');
   assert.deepEqual(removed, [7]);
 });
 
 test('never closes a tab it did not open', async () => {
   const { on, posted, removed } = loadWorker();
   // The feed tab is a same-tab SPA navigation: no onCreated for this id.
-  on.updated(3, { url: 'https://x.com/jack/status/20' }, { id: 3 });
+  on.updated(3, { url: 'https://x.com/someone/status/1234567890' }, { id: 3 });
   await settle();
 
   assert.deepEqual(posted, []);
@@ -180,7 +180,7 @@ test('leaves the tab open when the receiver does not confirm', async () => {
   const { on, posts, removed } = loadWorker({
     respond: () => new Error('ECONNREFUSED'),
   });
-  await openTab(on, 8, 'https://x.com/jack/status/20');
+  await openTab(on, 8, 'https://x.com/someone/status/1234567890');
 
   assert.equal(posts().length, 1, 'it tried once');
   assert.deepEqual(removed, [], 'tab must survive so the link is not lost');
@@ -197,15 +197,15 @@ test('backs off instead of retrying every tab while the receiver is down', async
 
 test('does not close a tab on a non-2xx reply', async () => {
   const { on, removed } = loadWorker({ respond: () => ({ ok: false, status: 500 }) });
-  await openTab(on, 12, 'https://x.com/jack/status/20');
+  await openTab(on, 12, 'https://x.com/someone/status/1234567890');
   assert.deepEqual(removed, []);
 });
 
 test('sends once when onCreated and onUpdated both fire for a tab', async () => {
   const { on, posts, removed } = loadWorker();
-  on.created({ id: 13, pendingUrl: 'https://x.com/jack/status/20' });
-  on.updated(13, { url: 'https://x.com/jack/status/20', status: 'loading' }, { id: 13 });
-  on.updated(13, { status: 'complete' }, { id: 13, url: 'https://x.com/jack/status/20' });
+  on.created({ id: 13, pendingUrl: 'https://x.com/someone/status/1234567890' });
+  on.updated(13, { url: 'https://x.com/someone/status/1234567890', status: 'loading' }, { id: 13 });
+  on.updated(13, { status: 'complete' }, { id: 13, url: 'https://x.com/someone/status/1234567890' });
   await settle();
 
   assert.equal(posts().length, 1);
@@ -216,7 +216,7 @@ test('follows a t.co redirect hop through to the tweet', async () => {
   const { on, posts, removed } = loadWorker();
   on.created({ id: 14, pendingUrl: 'https://t.co/shortened' });
   on.updated(14, { status: 'loading', url: 'https://t.co/shortened' }, { id: 14 });
-  on.updated(14, { url: 'https://x.com/jack/status/20' }, { id: 14 });
+  on.updated(14, { url: 'https://x.com/someone/status/1234567890' }, { id: 14 });
   await settle();
 
   assert.equal(posts().length, 1);
@@ -230,7 +230,7 @@ test('stops watching a new tab once it settles on a non-tweet page', async () =>
   await settle();
 
   // The user is now browsing in this tab; a later tweet must not close it.
-  on.updated(15, { url: 'https://x.com/jack/status/20' }, { id: 15 });
+  on.updated(15, { url: 'https://x.com/someone/status/1234567890' }, { id: 15 });
   await settle();
 
   assert.deepEqual(posted, []);
@@ -241,9 +241,9 @@ test('leaves a tweet opened from the panel alone', async () => {
   const { on, posted, removed } = loadWorker({
     tabs: { 1: { id: 1, windowId: 1, url: 'http://127.0.0.1:9876/#links' } },
   });
-  await openTab(on, 16, 'https://x.com/jack/status/20', 1);
+  await openTab(on, 16, 'https://x.com/someone/status/1234567890', 1);
   // X rewrites its address as it loads; still the panel's tab.
-  on.updated(16, { url: 'https://x.com/jack/status/20?s=1' }, { id: 16 });
+  on.updated(16, { url: 'https://x.com/someone/status/1234567890?s=1' }, { id: 16 });
   await settle();
 
   assert.deepEqual(posted, []);
@@ -257,10 +257,10 @@ test('still collects a tweet opened from any other page', async () => {
       2: { id: 2, windowId: 1, url: 'http://127.0.0.1:3000/' },
     },
   });
-  await openTab(on, 17, 'https://x.com/jack/status/20', 1);
-  await openTab(on, 18, 'https://x.com/jack/status/21', 2);
+  await openTab(on, 17, 'https://x.com/someone/status/1234567890', 1);
+  await openTab(on, 18, 'https://x.com/someone/status/1234567891', 2);
   // An opener that has since closed says nothing either way.
-  await openTab(on, 19, 'https://x.com/jack/status/22', 404);
+  await openTab(on, 19, 'https://x.com/someone/status/1234567892', 404);
 
   assert.equal(posts().length, 3);
   assert.deepEqual(removed, [17, 18, 19]);
@@ -268,12 +268,12 @@ test('still collects a tweet opened from any other page', async () => {
 
 test('posts to the port set on the options page', async () => {
   const { on, posts, removed } = loadWorker({ stored: { port: 9988 } });
-  await openTab(on, 20, 'https://x.com/jack/status/20');
+  await openTab(on, 20, 'https://x.com/someone/status/1234567890');
   assert.equal(posts()[0].url, 'http://127.0.0.1:9988/');
   assert.deepEqual(removed, [20]);
 
   on.storage({ port: { newValue: 9999 } }, 'local');
-  await openTab(on, 21, 'https://x.com/jack/status/21');
+  await openTab(on, 21, 'https://x.com/someone/status/1234567891');
   assert.equal(posts()[1].url, 'http://127.0.0.1:9999/');
 });
 
@@ -307,12 +307,12 @@ test('the right-click menu collects a tweet without opening or closing a tab', a
   assert.deepEqual(menus.map((m) => m.id), ['collect-link', 'collect-page']);
   assert.ok(menus[0].targetUrlPatterns.includes('*://x.com/*/status/*'));
 
-  on.menu({ menuItemId: 'collect-link', linkUrl: 'https://twitter.com/jack/status/20?s=20' });
-  on.menu({ menuItemId: 'collect-page', pageUrl: 'https://x.com/jack/status/21/photo/1' });
-  on.menu({ menuItemId: 'collect-link', linkUrl: 'https://x.com/jack' });
+  on.menu({ menuItemId: 'collect-link', linkUrl: 'https://twitter.com/someone/status/1234567890?s=20' });
+  on.menu({ menuItemId: 'collect-page', pageUrl: 'https://x.com/someone/status/1234567891/photo/1' });
+  on.menu({ menuItemId: 'collect-link', linkUrl: 'https://x.com/someone' });
   await settle();
 
-  assert.deepEqual(posts().map((p) => p.body), ['https://x.com/jack/status/20', 'https://x.com/jack/status/21']);
+  assert.deepEqual(posts().map((p) => p.body), ['https://x.com/someone/status/1234567890', 'https://x.com/someone/status/1234567891']);
   assert.deepEqual(removed, []);
   assert.deepEqual(created, []);
 });
