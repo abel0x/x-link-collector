@@ -39,6 +39,8 @@ receiver/target/
 tools/.venv/
 dist/
 *.zip
+*.xpi
+web-ext-artifacts/
 
 # ---------------------------------------------------------------------------
 # Editors and operating systems
