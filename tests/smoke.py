@@ -149,11 +149,10 @@ def run(binary: Path, work: Path) -> None:
         # A job that would run for a minute, to stop it: SIGINT to its group on
         # Unix, taskkill on Windows. A stand-in downloader keeps X out of it.
         fake = work / "fake-tools"
-        (fake / "downloader").mkdir(parents=True)
-        (fake / "spliter").mkdir()
-        (fake / "downloader" / "x-download").write_text(
+        (fake / "tools").mkdir(parents=True)
+        (fake / "tools" / "x-download").write_text(
             "import time\nprint('[1/9] ok  someone/1-1.mp4', flush=True)\ntime.sleep(60)\n")
-        (fake / "spliter" / "x-flatten").write_text("print('unused')\n")
+        (fake / "tools" / "x-flatten").write_text("print('unused')\n")
         r.api("/api/settings", {"tools_dir": str(fake)})
         status, _ = r.api("/api/job", {"kind": "download"})
         check(status == 200, "a long job starts")

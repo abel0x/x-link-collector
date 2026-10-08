@@ -45,7 +45,7 @@ pub struct Settings {
     pub flatten_prefix_handle: bool,
     pub flatten_videos_only: bool,
     pub flatten_copy: bool,
-    /// The folder holding downloader/ and spliter/; empty means "find it".
+    /// The folder holding tools/; empty means "find it".
     pub tools_dir: String,
     /// The Python interpreter; empty means "find it".
     pub python: String,

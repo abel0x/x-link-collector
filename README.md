@@ -70,17 +70,26 @@ the download tools need Python 3.9+.
 git clone https://github.com/abel0x/x-link-collector
 cd x-link-collector
 
-.\scripts\setup.ps1 -Autostart   # build, install the tools, start it at every logon
+.\packaging\windows\setup.ps1 -Autostart   # build, install the tools, start it at sign-in
 ```
 
 Needs [Rust](https://rustup.rs) and [Python 3.9+](https://python.org).
 </details>
 
-Then load the extension: open `vivaldi://extensions` (or `chrome://extensions`),
-turn on **Developer mode**, click **Load unpacked**, and pick the `extension/`
-folder. Middle-click a tweet — the toolbar badge counts what it saves, and clicking
-the icon opens the panel. To keep a tweet without opening it at all, right-click
-the link and choose **Collect this tweet**.
+Then load the extension. The same `extension/` folder works in both families
+of browsers:
+
+- **Vivaldi, Chrome, Brave, Edge:** open `vivaldi://extensions` (or
+  `chrome://extensions`), turn on **Developer mode**, click **Load unpacked**,
+  and pick the `extension/` folder.
+- **Firefox (128 or newer):** install `x-link-collector-firefox.xpi` from
+  [Releases](https://github.com/abel0x/x-link-collector/releases). To try the
+  folder itself, open `about:debugging`, choose **This Firefox → Load Temporary
+  Add-on** and pick `extension/manifest.json`; Firefox forgets it on restart.
+
+Middle-click a tweet — the toolbar badge counts what it saves, and clicking the
+icon opens the panel. To keep a tweet without opening it at all, right-click the
+link and choose **Collect this tweet**.
 
 ## The panel
 
@@ -92,7 +101,7 @@ there is nothing else to install, and it loads nothing from anywhere else.
 | **Overview** | One square per link, oldest first, coloured by what the downloader made of it, and the one button worth pressing next. |
 | **Links** | Every link with a thumbnail of what was downloaded; click it to see the photo or play the video. Search, filter by state, see why a download failed, fetch or retry a single link, paste a list in, take a link out. |
 | **Download** | Start, follow and stop a download, with the choices `x-download` has: mirrors, your own login, parallel downloads, a limit, a dry run. Or let new links download by themselves. |
-| **Folder** | What is on disk, and the one-folder [flatten](spliter/) — with undo. |
+| **Folder** | What is on disk, and the one-folder [flatten](docs/flatten.md) — with undo. |
 | **Settings** | Where links and media go, and the rest. Also installs or updates yt-dlp and gallery-dl, and says so when they have grown old enough to break. |
 
 It speaks English and Turkish, follows your system's light or dark theme, and fits
@@ -111,16 +120,17 @@ make download-status     # what has been collected so far
 
 Media lands in `<desktop>/x-media/<handle>/<tweet id>-1.mp4`. Every link is
 fetched exactly once, and stopping is free — the panel's Stop, Ctrl-C, `--limit`,
-`--batch` all resume where they left off. See **[downloader/README.md](downloader/README.md)**.
+`--batch` all resume where they left off. See **[docs/downloader.md](docs/downloader.md)**.
 
 ## What is in here
 
 | | |
 |---|---|
-| **[receiver/](receiver/)** | A dependency-free Rust daemon on `127.0.0.1:9876`. Appends links, deduplicates, fsyncs each write, and serves the panel. 935 KB static binary, under 1 MB RSS, one idle thread. |
-| **[extension/](extension/)** | Manifest V3 service worker for Vivaldi, Chrome, Brave and Edge. Cleans the URL, posts it, closes the tab once the write is confirmed. |
-| **[downloader/](downloader/)** | Fetches the media behind the links, once each, via yt-dlp and gallery-dl. Resumable, deduplicating, with routes for age-restricted tweets. |
-| **[spliter/](spliter/)** | Flattens the per-handle folders into one directory. Reversible. |
+| **[receiver/](receiver/)** | A dependency-free Rust daemon on `127.0.0.1:9876`. Appends links, deduplicates, fsyncs each write, and serves the panel from `receiver/panel/`. 935 KB static binary, under 1 MB RSS, one idle thread. |
+| **[extension/](extension/)** | One Manifest V3 extension for Vivaldi, Chrome, Brave, Edge and Firefox. Cleans the URL, posts it, closes the tab once the write is confirmed. |
+| **[tools/](tools/)** | `x-download` fetches the media behind the links, once each, via yt-dlp and gallery-dl — resumable, deduplicating, with routes for age-restricted tweets ([docs](docs/downloader.md)). `x-flatten` lays the per-handle folders out in one, reversibly ([docs](docs/flatten.md)). |
+| **[packaging/](packaging/)** | Starting it at login: the systemd unit, the launchd agent, and the Windows setup script. |
+| **[tests/](tests/)** | The extension's and the Python tools' tests, and the smoke test CI runs against the built receiver. |
 
 ## Three rules the extension never breaks
 
@@ -135,7 +145,8 @@ retrying every tab.
 **A tweet you open from the panel stays open.** The panel's links are there to be
 read, so a tab the panel opened is never collected.
 
-All three are covered by tests in `extension/test/`.
+All three are covered by `tests/extension.test.mjs`, and were tried by hand in
+Chromium and Firefox.
 
 ## URL cleaning
 
@@ -220,7 +231,7 @@ Building from source avoids both warnings, and takes about ten seconds.
 
 ## Platform support
 
-| | receiver | extension | downloader | spliter |
+| | receiver | extension | x-download | x-flatten |
 |---|---|---|---|---|
 | Linux | ✅ | ✅ | ✅ | ✅ |
 | macOS | ✅ | ✅ | ✅ | ✅ |

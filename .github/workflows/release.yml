@@ -35,19 +35,16 @@ jobs:
       - name: build
         run: cargo build --release --locked --target ${{ matrix.target }} --manifest-path receiver/Cargo.toml
 
-      # The whole kit, not just the binary: the receiver finds the downloader
-      # and the flattener next to itself, and the extension is loaded from
-      # the extension/ folder inside the archive.
+      # The whole kit, not just the binary: the receiver finds tools/ next to
+      # itself, and the extension is loaded from the extension/ folder inside.
       - name: package (unix)
         if: runner.os != 'Windows'
         run: |
           staging="x-link-collector-${{ matrix.label }}"
-          mkdir -p "$staging/downloader" "$staging/spliter"
+          mkdir -p "$staging/docs"
           cp "receiver/target/${{ matrix.target }}/release/x-link-receiver" "$staging/"
-          cp downloader/x-download downloader/README.md "$staging/downloader/"
-          cp spliter/x-flatten spliter/README.md "$staging/spliter/"
-          cp -R extension "$staging/extension"
-          rm -rf "$staging/extension/test"
+          cp -R tools extension "$staging/"
+          cp docs/downloader.md docs/flatten.md "$staging/docs/"
           cp LICENSE NOTICE README.md CHANGELOG.md "$staging/"
           tar czf "$staging.tar.gz" "$staging"
           shasum -a 256 "$staging.tar.gz" > "$staging.tar.gz.sha256"
@@ -57,12 +54,10 @@ jobs:
         shell: pwsh
         run: |
           $staging = "x-link-collector-${{ matrix.label }}"
-          New-Item -ItemType Directory -Force -Path "$staging/downloader", "$staging/spliter" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$staging/docs" | Out-Null
           Copy-Item "receiver/target/${{ matrix.target }}/release/x-link-receiver.exe" $staging
-          Copy-Item downloader/x-download, downloader/README.md "$staging/downloader"
-          Copy-Item spliter/x-flatten, spliter/README.md "$staging/spliter"
-          Copy-Item extension "$staging/extension" -Recurse
-          Remove-Item "$staging/extension/test" -Recurse -Force
+          Copy-Item tools, extension "$staging" -Recurse
+          Copy-Item docs/downloader.md, docs/flatten.md "$staging/docs"
           Copy-Item LICENSE, NOTICE, README.md, CHANGELOG.md $staging
           Compress-Archive -Path $staging -DestinationPath "$staging.zip"
           (Get-FileHash "$staging.zip" -Algorithm SHA256).Hash.ToLower() + "  $staging.zip" |
@@ -78,22 +73,42 @@ jobs:
           if-no-files-found: error
 
   extension:
-    name: extension zip
+    name: extension zip and Firefox add-on
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: zip the unpacked extension
         run: |
           cd extension
-          zip -qr ../x-link-collector-extension.zip . -x 'test/*'
+          zip -qr ../x-link-collector-extension.zip .
           cd ..
           shasum -a 256 x-link-collector-extension.zip > x-link-collector-extension.zip.sha256
+      # Release Firefox only installs add-ons Mozilla has signed. With the
+      # AMO_JWT_ISSUER / AMO_JWT_SECRET repository secrets set (an API key from
+      # addons.mozilla.org), the add-on is signed as unlisted: not shown on
+      # the store, installable from the release. Without them this is skipped.
+      - name: sign the Firefox add-on
+        env:
+          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+        run: |
+          if [ -z "$AMO_JWT_ISSUER" ] || [ -z "$AMO_JWT_SECRET" ]; then
+            echo "no AMO credentials; the Firefox add-on is left unsigned"
+            exit 0
+          fi
+          npx --yes web-ext@8 sign --source-dir extension --artifacts-dir signed \
+            --channel unlisted --api-key "$AMO_JWT_ISSUER" --api-secret "$AMO_JWT_SECRET"
+          cp signed/*.xpi x-link-collector-firefox.xpi
+          shasum -a 256 x-link-collector-firefox.xpi > x-link-collector-firefox.xpi.sha256
       - uses: actions/upload-artifact@v4
         with:
           name: extension
           path: |
             x-link-collector-extension.zip
             x-link-collector-extension.zip.sha256
+            x-link-collector-firefox.xpi
+            x-link-collector-firefox.xpi.sha256
+          if-no-files-found: warn
 
   publish:
     name: publish release

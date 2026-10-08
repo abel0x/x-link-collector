@@ -7,8 +7,8 @@
     downloader's tools, and optionally starts the receiver at logon.
 
 .EXAMPLE
-    .\scripts\setup.ps1
-    .\scripts\setup.ps1 -Autostart
+    .\packaging\windows\setup.ps1
+    .\packaging\windows\setup.ps1 -Autostart
 #>
 [CmdletBinding()]
 param(
@@ -17,7 +17,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$root = Split-Path -Parent $PSScriptRoot
+# packaging\windows\ -> the project folder
+$root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $panel = 'http://127.0.0.1:9876/'
 
 function Need($name, $hint) {
@@ -52,7 +53,7 @@ $binary = Join-Path $root 'receiver\target\release\x-link-receiver.exe'
 
 Write-Host '==> installing yt-dlp and gallery-dl'
 $rest = @($python | Select-Object -Skip 1)
-& $python[0] @rest "$root\downloader\x-download" --setup
+& $python[0] @rest "$root\tools\x-download" --setup
 if ($LASTEXITCODE -ne 0) { throw 'installing the download tools failed' }
 
 if ($Autostart) {
@@ -83,4 +84,4 @@ if (-not $Autostart) {
     Write-Host "  2. Start the receiver by double-clicking $binary"
     Write-Host '     The panel opens in your browser. (Or re-run this script with -Autostart.)'
 }
-Write-Host '  3. Download from the panel, or with: python downloader\x-download'
+Write-Host '  3. Download from the panel, or with: python tools\x-download'

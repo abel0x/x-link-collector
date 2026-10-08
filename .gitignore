@@ -36,7 +36,7 @@ docs/logo/*
 # Build output
 # ---------------------------------------------------------------------------
 receiver/target/
-downloader/.venv/
+tools/.venv/
 dist/
 *.zip
 

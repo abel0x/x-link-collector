@@ -258,7 +258,7 @@ impl App {
 
     // ------------------------------------------------------------ the tools
 
-    /// The folder holding `downloader/` and `spliter/`.
+    /// The folder holding `tools/`, with x-download and x-flatten in it.
     pub fn tools_dir(&self) -> Option<PathBuf> {
         let configured = self.settings().tools_dir.clone();
         if !configured.is_empty() {
@@ -286,7 +286,7 @@ impl App {
         let dir = self.tools_dir().ok_or_else(|| {
             Problem::new(
                 "no_tools",
-                "cannot find the downloader/ and spliter/ folders; set the tools folder in Settings",
+                "cannot find the tools/ folder; set the tools folder in Settings",
             )
         })?;
         let script = script(&dir);
@@ -431,7 +431,7 @@ impl App {
         Ok(id)
     }
 
-    /// yt-dlp and gallery-dl into downloader/.venv, or upgraded there.
+    /// yt-dlp and gallery-dl into tools/.venv, or upgraded there.
     pub fn start_setup(&self) -> Result<u64, Problem> {
         let cmd = self.tool_command(downloader, vec!["--setup".into()])?;
         let id = self.start_job("setup", cmd)?;
@@ -815,11 +815,11 @@ fn flatten_dest(s: &Settings, media: &Path) -> PathBuf {
 }
 
 fn downloader(dir: &Path) -> PathBuf {
-    dir.join("downloader").join("x-download")
+    dir.join("tools").join("x-download")
 }
 
 fn flattener(dir: &Path) -> PathBuf {
-    dir.join("spliter").join("x-flatten")
+    dir.join("tools").join("x-flatten")
 }
 
 fn flag(req: &Json, key: &str) -> bool {
