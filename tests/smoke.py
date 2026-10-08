@@ -85,6 +85,14 @@ class Receiver:
         return status, json.loads(raw or b"{}")
 
 
+def annotate(title: str, text: str) -> None:
+    """On GitHub Actions, an error annotation: readable on the run's page
+    without opening, or even being allowed to download, the job's log."""
+    if os.environ.get("GITHUB_ACTIONS"):
+        body = text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+        print(f"::error title={title}::{body}", flush=True)
+
+
 def check(condition: bool, what: str) -> None:
     print(f"  {'ok ' if condition else 'FAIL'} {what}", flush=True)
     if not condition:
@@ -177,7 +185,9 @@ def run(binary: Path, work: Path) -> None:
             # logs to a file next to its settings instead of to stdout.
             for log in (work / "receiver.log", r.config.parent / "receiver.log"):
                 if log.exists():
-                    print(f"--- {log.name}:\n{log.read_text(errors='replace')}")
+                    text = log.read_text(errors="replace")
+                    print(f"--- {log.name}:\n{text}")
+                    annotate(f"receiver log ({log.parent.name})", "\n".join(text.splitlines()[-40:]))
 
 
 def main() -> int:
@@ -186,8 +196,9 @@ def main() -> int:
     with tempfile.TemporaryDirectory() as tmp:
         try:
             run(binary, Path(tmp))
-        except AssertionError as e:
-            print(f"failed: {e}")
+        except Exception as e:  # an unexpected answer is as much a failure as a wrong one
+            print(f"failed: {e!r}")
+            annotate("smoke test failed", f"{type(e).__name__}: {e}")
             return 1
     print("all good")
     return 0

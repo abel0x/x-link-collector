@@ -178,6 +178,7 @@ fn main() {
 fn dispatch(mut stream: TcpStream, app: &Shared) {
     if INFLIGHT.load(Ordering::Relaxed) >= MAX_INFLIGHT {
         elog!("too many concurrent connections; rejecting one");
+        let _ = stream.set_nonblocking(false);
         let res = Response::text(503, "busy\n");
         let _ = http::write_response(&mut stream, &res, &http::Cors::Allow(None), false);
         return;
@@ -205,6 +206,10 @@ fn drain(limit: Duration) {
 }
 
 fn handle_connection(mut stream: TcpStream, app: &App) {
+    // macOS and the BSDs hand out accepted sockets in the listener's
+    // non-blocking mode; Linux does not. The timeouts below only mean
+    // something on a blocking socket, so say which this is.
+    let _ = stream.set_nonblocking(false);
     let _ = stream.set_read_timeout(Some(IO_TIMEOUT));
     let _ = stream.set_write_timeout(Some(IO_TIMEOUT));
     let _ = stream.set_nodelay(true);
