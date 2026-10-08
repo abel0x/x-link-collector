@@ -157,7 +157,11 @@ mod tests {
             "https://x.com/someone/status/1234567890/",
         ];
         for c in cases {
-            assert_eq!(canonicalize(c), "https://x.com/someone/status/1234567890", "{c}");
+            assert_eq!(
+                canonicalize(c),
+                "https://x.com/someone/status/1234567890",
+                "{c}"
+            );
         }
     }
 
@@ -178,7 +182,10 @@ mod tests {
         let other = "https://example.com/a/b?keep=this#frag";
         assert_eq!(canonicalize(other), other);
         // Not a status URL, so the query survives.
-        assert_eq!(canonicalize("https://x.com/someone"), "https://x.com/someone");
+        assert_eq!(
+            canonicalize("https://x.com/someone"),
+            "https://x.com/someone"
+        );
         assert_eq!(
             canonicalize("https://x.com/search?q=rust"),
             "https://x.com/search?q=rust"
