@@ -148,16 +148,16 @@ mod tests {
     #[test]
     fn canonicalises_tweet_urls() {
         let cases = [
-            "https://x.com/jack/status/20",
-            "http://twitter.com/jack/status/20",
-            "https://mobile.twitter.com/jack/status/20?s=20&t=abcd",
-            "https://www.x.com/jack/status/20/photo/1",
-            "https://x.com/jack/status/20#anchor",
-            "https://x.com/jack/statuses/20",
-            "https://x.com/jack/status/20/",
+            "https://x.com/someone/status/1234567890",
+            "http://twitter.com/someone/status/1234567890",
+            "https://mobile.twitter.com/someone/status/1234567890?s=20&t=abcd",
+            "https://www.x.com/someone/status/1234567890/photo/1",
+            "https://x.com/someone/status/1234567890#anchor",
+            "https://x.com/someone/statuses/1234567890",
+            "https://x.com/someone/status/1234567890/",
         ];
         for c in cases {
-            assert_eq!(canonicalize(c), "https://x.com/jack/status/20", "{c}");
+            assert_eq!(canonicalize(c), "https://x.com/someone/status/1234567890", "{c}");
         }
     }
 
@@ -178,7 +178,7 @@ mod tests {
         let other = "https://example.com/a/b?keep=this#frag";
         assert_eq!(canonicalize(other), other);
         // Not a status URL, so the query survives.
-        assert_eq!(canonicalize("https://x.com/jack"), "https://x.com/jack");
+        assert_eq!(canonicalize("https://x.com/someone"), "https://x.com/someone");
         assert_eq!(
             canonicalize("https://x.com/search?q=rust"),
             "https://x.com/search?q=rust"
@@ -220,8 +220,8 @@ mod tests {
     #[test]
     fn accepts_and_trims_valid_input() {
         assert_eq!(
-            sanitize("  https://x.com/jack/status/20?s=46  "),
-            Some("https://x.com/jack/status/20".to_string())
+            sanitize("  https://x.com/someone/status/1234567890?s=46  "),
+            Some("https://x.com/someone/status/1234567890".to_string())
         );
         assert_eq!(
             sanitize("HTTPS://example.com/x"),
@@ -232,11 +232,11 @@ mod tests {
     #[test]
     fn rejects_malformed_status_paths() {
         for bad in [
-            "https://x.com/jack/status/notanumber",
-            "https://x.com/jack/status/",
-            "https://x.com/waytoolongahandlehere/status/20",
-            "https://notx.com/jack/status/20",
-            "https://x.com.evil.tld/jack/status/20",
+            "https://x.com/someone/status/notanumber",
+            "https://x.com/someone/status/",
+            "https://x.com/waytoolongahandlehere/status/1234567890",
+            "https://notx.com/someone/status/1234567890",
+            "https://x.com.evil.tld/someone/status/1234567890",
         ] {
             assert_eq!(canonicalize(bad), bad, "{bad} should not be rewritten");
         }

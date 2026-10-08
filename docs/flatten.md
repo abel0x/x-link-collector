@@ -14,13 +14,13 @@ Default: `<desktop>/x-media/<handle>/<file>` → `<desktop>/x-media/x-media/<fil
 
 ```
 x-media/                          x-media/
-├── littlebambiboii/              └── x-media/
-│   └── 2093332826263376118-1.mp4     ├── 2093332826263376118-1.mp4
-├── itssefa9/               ->        ├── 2093373181234987229-1.mp4
-│   └── 2093373181234987229-1.mp4     ├── 2093054732000440628-1.mp4
-└── TwinkLeo07/                       └── 2093055318041260437-1.jpg
-    ├── 2093054732000440628-1.mp4
-    └── 2093055318041260437-1.jpg
+├── aurora_lens/                  └── x-media/
+│   └── 1900000000000000101-1.mp4     ├── 1900000000000000101-1.mp4
+├── paper_boats/            ->        ├── 1900000000000000202-1.mp4
+│   └── 1900000000000000202-1.mp4     ├── 1900000000000000303-1.mp4
+└── night_ferry/                      └── 1900000000000000304-1.jpg
+    ├── 1900000000000000303-1.mp4
+    └── 1900000000000000304-1.jpg
 ```
 
 The per-handle folders are removed once empty. `.x-download-state.json` stays
@@ -66,7 +66,7 @@ Flattening loses the poster's name, since that only lived in the folder. Use
 `--prefix-handle` if you want it kept:
 
 ```
-historyinmemes-1790637656616943991-1.mp4
+salt_flats-1900000000000000505-1.mp4
 ```
 
 ## A note on the default destination
