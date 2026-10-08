@@ -3,24 +3,53 @@
 
 //! Minimal stderr logging. journald/systemd adds its own timestamps, but the
 //! daemon is just as often run in a terminal, so we print our own UTC stamp.
+//!
+//! Started by a double-click on Windows, the receiver lets its console window
+//! go; from then on the log goes to a file instead, next to the settings.
 
 use std::fmt::Arguments;
+use std::fs::{File, OpenOptions};
+use std::io::Write;
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub static QUIET: AtomicBool = AtomicBool::new(false);
+
+static FILE: Mutex<Option<File>> = Mutex::new(None);
+
+/// Send the log to `path` from now on, appending.
+pub fn to_file(path: &Path) -> std::io::Result<()> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let file = OpenOptions::new().create(true).append(true).open(path)?;
+    *FILE.lock().unwrap_or_else(|e| e.into_inner()) = Some(file);
+    Ok(())
+}
+
+fn write(args: Arguments<'_>) {
+    let mut file = FILE.lock().unwrap_or_else(|e| e.into_inner());
+    match file.as_mut() {
+        Some(f) => {
+            let _ = writeln!(f, "[{}] {}", timestamp(), args);
+        }
+        None => eprintln!("[{}] {}", timestamp(), args),
+    }
+}
 
 /// Routine progress; silenced by `--quiet`.
 pub fn line(args: Arguments<'_>) {
     if QUIET.load(Ordering::Relaxed) {
         return;
     }
-    eprintln!("[{}] {}", timestamp(), args);
+    write(args);
 }
 
 /// Problems; always printed.
 pub fn error(args: Arguments<'_>) {
-    eprintln!("[{}] {}", timestamp(), args);
+    write(args);
 }
 
 #[macro_export]

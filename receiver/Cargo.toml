@@ -1,10 +1,10 @@
 [package]
 name = "x-link-receiver"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2021"
 rust-version = "1.65"
-description = "Zero-dependency localhost HTTP receiver that appends collected links to a text file."
-license = "MIT"
+description = "Zero-dependency loopback receiver that files collected links, with a panel to run the rest of x-link-collector."
+license = "Apache-2.0"
 
 # No dependencies. On purpose: `cargo build --release` works offline and the
 # binary is a few hundred KiB with no async runtime underneath it.

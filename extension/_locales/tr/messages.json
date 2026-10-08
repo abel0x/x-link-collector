@@ -1,0 +1,14 @@
+{
+  "description": {
+    "message": "x.com / twitter.com tweet bağlantılarını bilgisayarınızdaki links.txt dosyasına kaydeder ve sekmeyi kapatır."
+  },
+  "actionTitle": {
+    "message": "X Link Collector - paneli açmak için tıklayın"
+  },
+  "menuLink": {
+    "message": "Bu tweet’i topla"
+  },
+  "menuPage": {
+    "message": "Bu sayfadaki tweet’i topla"
+  }
+}

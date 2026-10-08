@@ -15,6 +15,10 @@ retry policy, consistent naming, parallelism, and never downloading twice.
     ./x-download --watch         # keep running, pick up links as they arrive
     ./x-download --status        # what has been collected so far
     ./x-download --cookies vivaldi   # for protected / age-restricted tweets
+    ./x-download --setup         # install yt-dlp + gallery-dl next to this script
+
+Defaults come from the panel's settings file when there is one, so a choice
+made in the panel holds here too; any option given on the command line wins.
 """
 
 from __future__ import annotations
@@ -130,6 +134,64 @@ def desktop_dir() -> Path:
     except OSError:
         pass
     return base / "Desktop"
+
+
+def config_path() -> Path:
+    """
+    The settings file the panel writes, shared with the receiver and x-flatten.
+    X_LINK_COLLECTOR_CONFIG points somewhere else, as it does for the receiver.
+    """
+    explicit = os.environ.get("X_LINK_COLLECTOR_CONFIG")
+    if explicit:
+        return Path(explicit).expanduser()
+    base = home()
+    if sys.platform == "win32":
+        root = Path(os.environ.get("APPDATA") or base / "AppData" / "Roaming")
+    elif sys.platform == "darwin":
+        root = base / "Library" / "Application Support"
+    else:
+        root = Path(os.environ.get("XDG_CONFIG_HOME") or base / ".config")
+    return root / "x-link-collector" / "config.json"
+
+
+def load_config() -> dict:
+    """The panel's settings. A missing or unreadable file means there are none."""
+    try:
+        data = json.loads(config_path().read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def config_defaults(config: dict) -> dict:
+    """The panel's settings, as defaults for this script's options."""
+    def whole(key: str, low: int, high: int) -> int | None:
+        value = config.get(key)
+        if isinstance(value, int) and not isinstance(value, bool) and low <= value <= high:
+            return value
+        return None
+
+    out: dict = {}
+    jobs, timeout = whole("jobs", 1, 10), whole("timeout", 30, 86400)
+    if jobs:
+        out["jobs"] = jobs
+    if timeout:
+        out["timeout"] = timeout
+    cookies = config.get("cookies")
+    if isinstance(cookies, str) and cookies.strip():
+        out["cookies"] = cookies.strip()
+    if config.get("metadata") is True:
+        out["metadata"] = True
+    if config.get("mirror") == "fallback":
+        out["mirror"] = True
+    elif config.get("mirror") == "only":
+        out["mirror_only"] = True
+    return out
+
+
+def setting_path(config: dict, key: str) -> Path | None:
+    value = config.get(key)
+    return Path(value.strip()) if isinstance(value, str) and value.strip() else None
 
 
 def find_tool(module: str, script: str, override: str | None = None) -> list[str] | None:
@@ -250,8 +312,8 @@ def cookie_args(cookies: str | None) -> list[str]:
     """`--cookies vivaldi` or `--cookies /path/to/cookies.txt`; both tools agree."""
     if not cookies:
         return []
-    if os.sep in cookies or Path(cookies).exists():
-        return ["--cookies", cookies]
+    if os.sep in cookies or "/" in cookies or Path(cookies).expanduser().exists():
+        return ["--cookies", str(Path(cookies).expanduser())]
     return ["--cookies-from-browser", cookies]
 
 
@@ -595,7 +657,83 @@ def summarise(attempts: list[Result]) -> Result:
     return attempts[0]
 
 
+# --------------------------------------------------------------------- setup
+
+def tool_version(argv: list[str], flag: str = "--version") -> str | None:
+    code, output = run([*argv, flag], 30)
+    lines = output.strip().splitlines()
+    return lines[0].strip() if code == 0 and lines else None
+
+
+def setup() -> int:
+    """
+    yt-dlp and gallery-dl into downloader/.venv, or upgraded there. The same
+    thing `make downloader-setup` does, and the panel's Install button.
+    """
+    venv = VENV_BIN.parent
+    if not VENV_PYTHON.exists():
+        print(f"creating {venv}", flush=True)
+        code = subprocess.call([sys.executable, "-m", "venv", str(venv)])
+        if code != 0 or not VENV_PYTHON.exists():
+            print("could not create the virtualenv", file=sys.stderr)
+            if sys.platform.startswith("linux"):
+                print("  Debian/Ubuntu need it installed first: "
+                      "sudo apt install python3-venv", file=sys.stderr)
+            return 1
+    print("installing yt-dlp and gallery-dl -- a minute or so", flush=True)
+    code = subprocess.call([
+        str(VENV_PYTHON), "-m", "pip", "install", "--quiet",
+        "--disable-pip-version-check", "--upgrade", "pip", "yt-dlp", "gallery-dl",
+    ])
+    if code != 0:
+        print("pip install failed; the reason is above", file=sys.stderr)
+        return code
+    for module, name in (("yt_dlp", "yt-dlp"), ("gallery_dl", "gallery-dl")):
+        version = tool_version([str(VENV_PYTHON), "-m", module])
+        print(f"  {name:<10} {version or 'installed, but does not run'}", flush=True)
+    return 0
+
+
+def check(as_json: bool) -> int:
+    """Which tools a download would use, and their versions."""
+    ytdlp = find_tool("yt_dlp", "yt-dlp")
+    gallery_dl = find_tool("gallery_dl", "gallery-dl")
+    ffmpeg = shutil.which("ffmpeg")
+    ffmpeg_line = tool_version([ffmpeg], "-version") if ffmpeg else None
+    found = {
+        "python_version": ".".join(map(str, sys.version_info[:3])),
+        "venv": VENV_PYTHON.exists(),
+        "yt_dlp": tool_version(ytdlp) if ytdlp else None,
+        "gallery_dl": tool_version(gallery_dl) if gallery_dl else None,
+        # "ffmpeg version 7.1.1 Copyright ..." -> "7.1.1"
+        "ffmpeg": ffmpeg_line.split()[2] if ffmpeg_line and len(ffmpeg_line.split()) > 2 else None,
+    }
+    if as_json:
+        print(json.dumps(found))
+        return 0
+    print(f"python      {found['python_version']}")
+    print(f"yt-dlp      {found['yt_dlp'] or 'missing'}")
+    print(f"gallery-dl  {found['gallery_dl'] or 'missing'}")
+    print(f"ffmpeg      {found['ffmpeg'] or 'missing (needed when X serves video and audio apart)'}")
+    print(f"from        {'downloader/.venv' if found['venv'] else '$PATH'}")
+    return 0 if found["yt_dlp"] or found["gallery_dl"] else 1
+
+
 # ------------------------------------------------------------------ planning
+
+def link_key(url: str) -> str:
+    """What makes two lines the same link: the tweet id, else the URL itself."""
+    twid = tweet_id(url)
+    return f"tweet:{twid}" if twid else url
+
+
+def only(links: list[str], wanted: list[str] | None) -> list[str]:
+    """With --only, just those links -- still taken from the links file."""
+    if not wanted:
+        return links
+    keys = {link_key(url.strip()) for url in wanted}
+    return [url for url in links if link_key(url) in keys]
+
 
 def read_links(path: Path) -> tuple[list[str], int, int]:
     """
@@ -630,8 +768,7 @@ def read_links(path: Path) -> tuple[list[str], int, int]:
             else:
                 skipped += 1
                 continue
-        twid = tweet_id(line)
-        key = f"tweet:{twid}" if twid else line
+        key = link_key(line)
         if key in seen:
             collapsed += 1
             continue
@@ -669,12 +806,15 @@ def process(links: list[str], state: State, opts, tools: Tools) -> dict[str, int
     outstanding = pending(links, state, opts)
     tally = {DONE: 0, NO_MEDIA: 0, FAILED: 0, "auth": 0, "processed": 0, "left": 0}
     if not outstanding:
+        if opts.dry_run:
+            print("nothing to download")
         return tally
 
     todo = outstanding[: opts.limit] if opts.limit else outstanding
     if opts.dry_run:
         for url in todo:
             print(f"  would download {url}")
+        print(f"dry run: {len(todo)} link would be downloaded")
         return tally
 
     route = "mirror only" if opts.mirror_only else "X, then mirror" if opts.mirror else "X"
@@ -816,6 +956,10 @@ working through a long list:
   x-download --mirror-only              carry on with the rest
   x-download --mirror-only --batch 100 --pause 30
 
+setting up:
+  x-download --setup                    install or upgrade yt-dlp + gallery-dl
+  x-download --check                    which tools a download would use
+
 Stopping is free. Every finished link is recorded before the next one starts,
 so Ctrl-C, --limit and --batch all resume from where they left off; a link is
 never downloaded twice. Links are deduplicated on the tweet id, so the same
@@ -829,7 +973,8 @@ def build_parser() -> argparse.ArgumentParser:
         description=(
             "Download the media behind the links collected in links.txt.\n"
             "With no options: reads <desktop>/links.txt, fetches every link not "
-            "fetched yet\ninto <desktop>/x-media, 3 at a time."
+            "fetched yet\ninto <desktop>/x-media, 3 at a time. Defaults come from "
+            "the panel's settings\nfile when there is one; options given here win."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=EXAMPLES,
@@ -871,13 +1016,24 @@ def build_parser() -> argparse.ArgumentParser:
     gated.add_argument("--retry-failed", action="store_true",
                        help="re-queue links previously recorded as failed or media-less")
 
+    pace.add_argument("--only", action="append", metavar="URL",
+                      help="just this link from the links file; repeat for more")
+
     look = p.add_argument_group("look without downloading")
     look.add_argument("--status", action="store_true",
                       help="print progress and counts, then exit")
     look.add_argument("--dry-run", action="store_true",
                       help="list the links that would be fetched, then exit")
 
-    tools = p.add_argument_group("tool locations")
+    tools = p.add_argument_group("tools and settings")
+    tools.add_argument("--setup", action="store_true",
+                       help="install or upgrade yt-dlp and gallery-dl in "
+                            "downloader/.venv, then exit")
+    tools.add_argument("--check", action="store_true",
+                       help="show which tools a download would use, then exit")
+    tools.add_argument("--json", action="store_true", help=argparse.SUPPRESS)
+    tools.add_argument("--no-config", action="store_true",
+                       help=f"ignore the panel's settings file ({config_path()})")
     tools.add_argument("--yt-dlp", dest="ytdlp_path", metavar="PATH",
                        help="path to yt-dlp (default: downloader/.venv, then $PATH)")
     tools.add_argument("--gallery-dl", dest="gallery_dl_path", metavar="PATH",
@@ -886,11 +1042,20 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str]) -> int:
-    opts = build_parser().parse_args(argv)
+    config = {} if "--no-config" in argv else load_config()
+    parser = build_parser()
+    parser.set_defaults(**config_defaults(config))
+    opts = parser.parse_args(argv)
+    if opts.setup:
+        return setup()
+    if opts.check:
+        return check(opts.json)
     if opts.mirror_only:
         opts.mirror = True
-    opts.links = (opts.links or desktop_dir() / "links.txt").expanduser()
-    opts.out = (opts.out or desktop_dir() / "x-media").expanduser()
+    opts.links = (opts.links or setting_path(config, "links_file")
+                  or desktop_dir() / "links.txt").expanduser()
+    opts.out = (opts.out or setting_path(config, "media_dir")
+                or desktop_dir() / "x-media").expanduser()
 
     tools = Tools(
         ytdlp=find_tool("yt_dlp", "yt-dlp", opts.ytdlp_path),
@@ -899,9 +1064,9 @@ def main(argv: list[str]) -> int:
     if not tools.ytdlp and not tools.gallery_dl:
         print(
             "neither yt-dlp nor gallery-dl found.\n"
+            "  anywhere:     x-download --setup  (or Install in the panel)\n"
             "  Linux/macOS:  make downloader-setup\n"
-            "  Windows:      .\\scripts\\setup.ps1\n"
-            "  or anywhere:  pipx install yt-dlp gallery-dl",
+            "  Windows:      .\\scripts\\setup.ps1",
             file=sys.stderr,
         )
         return 1
@@ -913,6 +1078,7 @@ def main(argv: list[str]) -> int:
     opts.out.mkdir(parents=True, exist_ok=True)
     state = State(opts.out / STATE_FILE)
     links, collapsed, skipped = read_links(opts.links)
+    links = only(links, opts.only)
     if collapsed:
         print(f"note: {collapsed} duplicate link collapsed (same tweet id)",
               file=sys.stderr)
@@ -938,7 +1104,7 @@ def main(argv: list[str]) -> int:
         report(tally, opts)
         while opts.watch:
             time.sleep(opts.watch)
-            links, _, _ = read_links(opts.links)
+            links = only(read_links(opts.links)[0], opts.only)
             tally = process(links, state, opts, tools)
             if any(tally[k] for k in (DONE, NO_MEDIA, FAILED)):
                 report(tally, opts)

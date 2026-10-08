@@ -2,7 +2,8 @@ name: ci
 
 on:
   push:
-    branches: [main]
+    # *-wip: work pushed to be tried on all three systems before it is merged.
+    branches: [main, "*-wip"]
   pull_request:
   workflow_dispatch:
 
@@ -31,6 +32,14 @@ jobs:
         run: cargo test --manifest-path receiver/Cargo.toml
       - name: clippy
         run: cargo clippy --manifest-path receiver/Cargo.toml --all-targets -- -D warnings
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # The built binary, started for real: captures, the panel's API, a job
+      # run and stopped, quitting. On Windows this is the only place it runs.
+      - name: smoke test
+        shell: bash
+        run: python tests/smoke.py "receiver/target/release/x-link-receiver${{ runner.os == 'Windows' && '.exe' || '' }}"
       - name: rustfmt
         if: matrix.os == 'ubuntu-latest'
         run: cargo fmt --manifest-path receiver/Cargo.toml --check
@@ -46,7 +55,7 @@ jobs:
             | grep -qE "static-pie linked|statically linked"
 
   extension:
-    name: extension
+    name: extension and panel
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -55,22 +64,33 @@ jobs:
           node-version: 20
       - name: service worker tests
         run: node --test extension/test/
+      - name: the pages' scripts parse
+        run: |
+          node --check extension/options.js
+          node --check receiver/panel/panel.js
       - name: manifest is valid json
         run: python3 -c "import json;json.load(open('extension/manifest.json'))"
 
   tools:
-    name: python tools
+    name: python tools (${{ matrix.os }}, ${{ matrix.python }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ["3.12"]
+        include:
+          # The oldest Python the README promises.
+          - os: ubuntu-latest
+            python: "3.9"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-      - name: they at least parse and answer --help everywhere
+          python-version: ${{ matrix.python }}
+      - name: tests
+        run: python -m unittest discover -s tests -v
+      - name: they answer --help everywhere
         shell: bash
         run: |
           python downloader/x-download --help > /dev/null

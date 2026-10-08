@@ -82,7 +82,8 @@ fn split_url(url: &str) -> Option<(&str, &str)> {
     Some((host, path))
 }
 
-fn tweet_ref(url: &str) -> Option<TweetRef> {
+/// The handle and status id of a tweet permalink; `None` for anything else.
+pub fn tweet_ref(url: &str) -> Option<TweetRef> {
     let (host_raw, path_raw) = split_url(url)?;
 
     let lowered = host_raw.to_ascii_lowercase();

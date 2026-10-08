@@ -5,6 +5,7 @@
 
 BIN_NAME := x-link-receiver
 CARGO    ?= cargo
+PYTHON   ?= python3
 UNAME    := $(shell uname -s)
 # Clippy runs per target: a lint can fire on one platform and not another,
 # which is exactly how a Windows-only `needless_return` reached CI once.
@@ -14,10 +15,14 @@ BIN      := receiver/target/release/$(BIN_NAME)
 UNIT_DIR := $(HOME)/.config/systemd/user
 UNIT     := $(UNIT_DIR)/$(BIN_NAME).service
 PLIST_ID := com.abel0x.x-link-receiver
+PANEL    := http://127.0.0.1:9876/
+OPEN     := $(if $(filter Darwin,$(UNAME)),open,xdg-open)
 
 .DEFAULT_GOAL := help
-.PHONY: help build ci test test-rs test-ext run install uninstall service \
-	    service-stop service-uninstall status logs package clean
+.PHONY: help build ci test test-rs test-ext test-py smoke run panel install uninstall \
+	    service service-stop service-uninstall status logs package clean \
+	    downloader-setup downloader-update download download-watch download-all \
+	    download-status flatten flatten-undo
 
 help: ## show this help
 	@awk 'BEGIN { FS = ":.*## " } /^[a-z][a-z-]*:.*## / { printf "  make %-18s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -34,11 +39,14 @@ ci: ## run every check CI runs, including the cross-target ones
 	    --all-targets -- -D warnings || exit 1; \
 	done
 	node --test extension/test/
-	python3 downloader/x-download --help >/dev/null
-	python3 spliter/x-flatten --help >/dev/null
+	node --check receiver/panel/panel.js
+	node --check extension/options.js
+	$(PYTHON) -m unittest discover -s tests
+	$(PYTHON) downloader/x-download --help >/dev/null
+	$(PYTHON) spliter/x-flatten --help >/dev/null
 	@echo "all clear"
 
-test: test-rs test-ext ## run every test
+test: test-rs test-ext test-py ## run every test
 
 test-rs: ## run the receiver's unit tests
 	$(CARGO) test --manifest-path receiver/Cargo.toml
@@ -46,8 +54,17 @@ test-rs: ## run the receiver's unit tests
 test-ext: ## run the service worker's tests (needs node)
 	node --test extension/test/
 
+test-py: ## run the downloader's and the flattener's tests
+	$(PYTHON) -m unittest discover -s tests
+
+smoke: build ## start the built receiver and use it end to end
+	$(PYTHON) tests/smoke.py $(BIN)
+
 run: build ## run the receiver in the foreground (Ctrl-C to stop)
 	$(BIN)
+
+panel: ## open the panel in your browser (the receiver must be running)
+	@$(OPEN) $(PANEL) >/dev/null 2>&1 || echo "open $(PANEL) in your browser"
 
 install: build ## copy the binary to ~/.local/bin (override PREFIX)
 	install -Dm755 $(BIN) $(PREFIX)/bin/$(BIN_NAME)
@@ -68,8 +85,11 @@ else
 	install -Dm644 receiver/systemd/$(BIN_NAME).service $(UNIT)
 	systemctl --user daemon-reload
 	systemctl --user enable --now $(BIN_NAME).service
+	@# A running copy keeps the old binary until it is restarted.
+	systemctl --user restart $(BIN_NAME).service
 	@systemctl --user --no-pager --lines=0 status $(BIN_NAME).service || true
 endif
+	@echo "the panel is at $(PANEL)  (make panel opens it)"
 
 service-stop: ## stop the service without uninstalling it
 ifeq ($(UNAME),Darwin)
@@ -104,14 +124,10 @@ package: ## zip the extension for distribution (dist/)
 	@echo "wrote dist/x-link-collector.zip"
 
 downloader-setup: ## install yt-dlp + gallery-dl into downloader/.venv (no sudo)
-	python3 -m venv --clear downloader/.venv
-	downloader/.venv/bin/python -m pip install --quiet --upgrade pip yt-dlp gallery-dl
-	@printf '  yt-dlp     %s\n' "$$(downloader/.venv/bin/python -m yt_dlp --version)"
-	@printf '  gallery-dl %s\n' "$$(downloader/.venv/bin/python -m gallery_dl --version)"
+	$(PYTHON) downloader/x-download --setup
 
 downloader-update: ## upgrade yt-dlp/gallery-dl (X breaks them every few weeks)
-	downloader/.venv/bin/python -m pip install --quiet --upgrade yt-dlp gallery-dl
-	@printf '  yt-dlp     %s\n' "$$(downloader/.venv/bin/python -m yt_dlp --version)"
+	$(PYTHON) downloader/x-download --setup
 
 download: ## download media for every link not fetched yet
 	downloader/x-download
