@@ -1,4 +1,4 @@
-# spliter
+# x-flatten
 
 Pulls every downloaded file out of its per-handle folder and lays them side by
 side in one directory. The panel's **Folder** page does the same, with a preview

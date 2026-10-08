@@ -667,7 +667,7 @@ def tool_version(argv: list[str], flag: str = "--version") -> str | None:
 
 def setup() -> int:
     """
-    yt-dlp and gallery-dl into downloader/.venv, or upgraded there. The same
+    yt-dlp and gallery-dl into tools/.venv, or upgraded there. The same
     thing `make downloader-setup` does, and the panel's Install button.
     """
     venv = VENV_BIN.parent
@@ -715,7 +715,7 @@ def check(as_json: bool) -> int:
     print(f"yt-dlp      {found['yt_dlp'] or 'missing'}")
     print(f"gallery-dl  {found['gallery_dl'] or 'missing'}")
     print(f"ffmpeg      {found['ffmpeg'] or 'missing (needed when X serves video and audio apart)'}")
-    print(f"from        {'downloader/.venv' if found['venv'] else '$PATH'}")
+    print(f"from        {'tools/.venv' if found['venv'] else '$PATH'}")
     return 0 if found["yt_dlp"] or found["gallery_dl"] else 1
 
 
@@ -1028,16 +1028,16 @@ def build_parser() -> argparse.ArgumentParser:
     tools = p.add_argument_group("tools and settings")
     tools.add_argument("--setup", action="store_true",
                        help="install or upgrade yt-dlp and gallery-dl in "
-                            "downloader/.venv, then exit")
+                            "tools/.venv, then exit")
     tools.add_argument("--check", action="store_true",
                        help="show which tools a download would use, then exit")
     tools.add_argument("--json", action="store_true", help=argparse.SUPPRESS)
     tools.add_argument("--no-config", action="store_true",
                        help=f"ignore the panel's settings file ({config_path()})")
     tools.add_argument("--yt-dlp", dest="ytdlp_path", metavar="PATH",
-                       help="path to yt-dlp (default: downloader/.venv, then $PATH)")
+                       help="path to yt-dlp (default: tools/.venv, then $PATH)")
     tools.add_argument("--gallery-dl", dest="gallery_dl_path", metavar="PATH",
-                       help="path to gallery-dl (default: downloader/.venv, then $PATH)")
+                       help="path to gallery-dl (default: tools/.venv, then $PATH)")
     return p
 
 
@@ -1066,7 +1066,7 @@ def main(argv: list[str]) -> int:
             "neither yt-dlp nor gallery-dl found.\n"
             "  anywhere:     x-download --setup  (or Install in the panel)\n"
             "  Linux/macOS:  make downloader-setup\n"
-            "  Windows:      .\\scripts\\setup.ps1",
+            "  Windows:      .\\packaging\\windows\\setup.ps1",
             file=sys.stderr,
         )
         return 1

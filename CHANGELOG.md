@@ -22,6 +22,9 @@
   It is compiled into the binary and loads nothing from anywhere else. It can
   notify you when a download finishes, and says when yt-dlp is old enough
   that X has probably broken it.
+- **Firefox.** The same extension folder runs in Firefox 128 and newer. The
+  release workflow signs it as an unlisted add-on when the AMO API key is set
+  as a repository secret.
 - The extension's right-click menu collects a tweet link, or the tweet on the
   page, without opening or closing a tab.
 - Automatic downloads, if you want them: new links are fetched 20 seconds
@@ -62,6 +65,12 @@
 - The launchd agent finds Python and ffmpeg where Homebrew puts them.
 - `make service` restarts a receiver that is already running, so an upgrade
   takes effect.
+- The files are arranged by what they are: `receiver/`, `extension/`,
+  `tools/` (x-download and x-flatten, which were in `downloader/` and
+  `spliter/`), `packaging/` (systemd, launchd, Windows setup), `tests/` and
+  `docs/`. The tools' virtualenv moves to `tools/.venv`: run
+  `make downloader-setup` once.
+- The extension needs Chrome 121 or newer, for a manifest Firefox can read too.
 - `Cargo.toml` states the licence the project has always had, Apache-2.0.
 
 ## [1.0.0] - 2026-09-09

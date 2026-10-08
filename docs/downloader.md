@@ -1,4 +1,4 @@
-# downloader
+# x-download
 
 Downloads the media behind every link the extension collected, at the best
 quality X serves, and never fetches the same tweet twice.
@@ -7,7 +7,7 @@ The panel's **Download** page runs it for you, with every choice below as a
 button or a field. From the repository root:
 
 ```sh
-make downloader-setup     # once: yt-dlp + gallery-dl into .venv, no sudo
+make downloader-setup     # once: yt-dlp + gallery-dl into tools/.venv, no sudo
 make download             # download everything new
 make download-all         # including age-restricted tweets
 make download-status      # what has been collected
@@ -16,8 +16,8 @@ make download-status      # what has been collected
 Or call it directly, from anywhere, for the options below:
 
 ```sh
-downloader/x-download --watch
-downloader/x-download --mirror-only --limit 100
+tools/x-download --watch
+tools/x-download --mirror-only --limit 100
 ```
 
 Media lands in `<desktop>/x-media/<handle>/<tweet id>-<n>.<ext>`, next to
@@ -191,7 +191,7 @@ altogether. Without the file, everything is as described here.
 --status            print a summary and exit
 --dry-run           list what would be downloaded
 --only URL          just this link from the links file; repeat for more
---setup             install or upgrade yt-dlp + gallery-dl in downloader/.venv
+--setup             install or upgrade yt-dlp + gallery-dl in tools/.venv
 --check             show which tools a download would use, with versions
 --no-config         ignore the panel's settings file
 ```
@@ -210,4 +210,4 @@ altogether. Without the file, everything is as described here.
 
 The venv keeps everything inside this folder. If you would rather have the tools
 system-wide, `pipx install yt-dlp gallery-dl` (or your package manager) also
-works — `x-download` prefers `.venv/bin` and falls back to `$PATH`.
+works — `x-download` prefers `tools/.venv` and falls back to `$PATH`.

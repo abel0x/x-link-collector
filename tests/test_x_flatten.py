@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 abel0x <https://github.com/abel0x>
 """
-Tests for spliter/x-flatten, run against a throwaway media folder.
+Tests for tools/x-flatten, run against a throwaway media folder.
 
     python3 -m unittest discover -s tests      (or: make test-py)
 """
@@ -19,7 +19,7 @@ from unittest import mock
 
 from test_x_download import load
 
-xf = load("spliter/x-flatten", "x_flatten")
+xf = load("tools/x-flatten", "x_flatten")
 
 
 class Flatten(unittest.TestCase):

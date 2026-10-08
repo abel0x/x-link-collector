@@ -4,7 +4,7 @@
 /**
  * Tests for the service worker's URL canonicalisation and tab-closing rules.
  *
- *   node --test extension/test/        (or: make test-ext)
+ *   node --test tests/        (or: make test-ext)
  *
  * background.js is loaded into a fresh V8 context per test with `chrome` and
  * `fetch` stubbed, so each case starts from clean worker state.
@@ -18,7 +18,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const source = readFileSync(join(here, '..', 'background.js'), 'utf8');
+const source = readFileSync(join(here, '..', 'extension', 'background.js'), 'utf8');
 
 /**
  * Load background.js into an isolated context and return its stubs.

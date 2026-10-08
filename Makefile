@@ -38,12 +38,12 @@ ci: ## run every check CI runs, including the cross-target ones
 	  $(CARGO) clippy --manifest-path receiver/Cargo.toml --target "$$t" \
 	    --all-targets -- -D warnings || exit 1; \
 	done
-	node --test extension/test/
+	node --test tests/extension.test.mjs
 	node --check receiver/panel/panel.js
 	node --check extension/options.js
 	$(PYTHON) -m unittest discover -s tests
-	$(PYTHON) downloader/x-download --help >/dev/null
-	$(PYTHON) spliter/x-flatten --help >/dev/null
+	$(PYTHON) tools/x-download --help >/dev/null
+	$(PYTHON) tools/x-flatten --help >/dev/null
 	@echo "all clear"
 
 test: test-rs test-ext test-py ## run every test
@@ -52,7 +52,7 @@ test-rs: ## run the receiver's unit tests
 	$(CARGO) test --manifest-path receiver/Cargo.toml
 
 test-ext: ## run the service worker's tests (needs node)
-	node --test extension/test/
+	node --test tests/extension.test.mjs
 
 test-py: ## run the downloader's and the flattener's tests
 	$(PYTHON) -m unittest discover -s tests
@@ -76,13 +76,13 @@ uninstall: ## remove the installed binary
 service: install ## run the receiver at login (systemd on Linux, launchd on macOS)
 ifeq ($(UNAME),Darwin)
 	@mkdir -p $(HOME)/Library/LaunchAgents
-	@sed 's|__BIN__|$(PREFIX)/bin/$(BIN_NAME)|' receiver/launchd/$(PLIST_ID).plist \
+	@sed 's|__BIN__|$(PREFIX)/bin/$(BIN_NAME)|' packaging/launchd/$(PLIST_ID).plist \
 	  > $(HOME)/Library/LaunchAgents/$(PLIST_ID).plist
 	-launchctl unload $(HOME)/Library/LaunchAgents/$(PLIST_ID).plist 2>/dev/null
 	launchctl load -w $(HOME)/Library/LaunchAgents/$(PLIST_ID).plist
 	@echo "loaded $(PLIST_ID)"
 else
-	install -Dm644 receiver/systemd/$(BIN_NAME).service $(UNIT)
+	install -Dm644 packaging/systemd/$(BIN_NAME).service $(UNIT)
 	systemctl --user daemon-reload
 	systemctl --user enable --now $(BIN_NAME).service
 	@# A running copy keeps the old binary until it is restarted.
@@ -120,32 +120,32 @@ endif
 
 package: ## zip the extension for distribution (dist/)
 	@mkdir -p dist
-	cd extension && zip -qr ../dist/x-link-collector.zip . -x 'test/*'
+	cd extension && zip -qr ../dist/x-link-collector.zip .
 	@echo "wrote dist/x-link-collector.zip"
 
-downloader-setup: ## install yt-dlp + gallery-dl into downloader/.venv (no sudo)
-	$(PYTHON) downloader/x-download --setup
+downloader-setup: ## install yt-dlp + gallery-dl into tools/.venv (no sudo)
+	$(PYTHON) tools/x-download --setup
 
 downloader-update: ## upgrade yt-dlp/gallery-dl (X breaks them every few weeks)
-	$(PYTHON) downloader/x-download --setup
+	$(PYTHON) tools/x-download --setup
 
 download: ## download media for every link not fetched yet
-	downloader/x-download
+	tools/x-download
 
 download-watch: ## keep downloading as the extension collects new links
-	downloader/x-download --watch
+	tools/x-download --watch
 
 download-all: ## download every link incl. age-restricted ones (mirror only)
-	downloader/x-download --mirror-only
+	tools/x-download --mirror-only
 
 download-status: ## show what has been downloaded so far
-	downloader/x-download --status
+	tools/x-download --status
 
 flatten: ## move downloaded media into one flat folder (dry run first!)
-	spliter/x-flatten
+	tools/x-flatten
 
 flatten-undo: ## put flattened files back into their per-handle folders
-	spliter/x-flatten --undo
+	tools/x-flatten --undo
 
 clean: ## remove build output
 	$(CARGO) clean --manifest-path receiver/Cargo.toml

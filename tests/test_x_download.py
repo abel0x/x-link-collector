@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 abel0x <https://github.com/abel0x>
 """
-Tests for downloader/x-download that need neither yt-dlp nor the network.
+Tests for tools/x-download that need neither yt-dlp nor the network.
 
     python3 -m unittest discover -s tests      (or: make test-py)
 """
@@ -32,7 +32,7 @@ def load(relative: str, name: str):
     return module
 
 
-xd = load("downloader/x-download", "x_download")
+xd = load("tools/x-download", "x_download")
 
 
 class ReadLinks(unittest.TestCase):

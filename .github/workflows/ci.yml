@@ -63,7 +63,7 @@ jobs:
         with:
           node-version: 20
       - name: service worker tests
-        run: node --test extension/test/
+        run: node --test tests/extension.test.mjs
       - name: the pages' scripts parse
         run: |
           node --check extension/options.js
@@ -93,5 +93,5 @@ jobs:
       - name: they answer --help everywhere
         shell: bash
         run: |
-          python downloader/x-download --help > /dev/null
-          python spliter/x-flatten --help > /dev/null
+          python tools/x-download --help > /dev/null
+          python tools/x-flatten --help > /dev/null
