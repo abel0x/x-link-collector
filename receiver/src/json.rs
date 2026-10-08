@@ -1,17 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 abel0x <https://github.com/abel0x>
 
-//! A minimal JSON reader, just enough to pull URLs out of a posted body.
+//! A minimal JSON reader and writer.
 //!
-//! Accepted shapes: `"url"`, `["a","b"]`, `{"url":"a"}`, `{"urls":["a","b"]}`,
-//! and `{"links":[{"url":"a"}]}`. Only `url`/`urls`/`link`/`links` keys are
+//! Reading started as just enough to pull URLs out of a posted body. Accepted
+//! shapes: `"url"`, `["a","b"]`, `{"url":"a"}`, `{"urls":["a","b"]}`, and
+//! `{"links":[{"url":"a"}]}`. Only `url`/`urls`/`link`/`links` keys are
 //! descended into, so unrelated string fields never end up in the file.
+//!
+//! The panel API and the settings file need the other direction too: `Display`
+//! writes compact JSON, `pretty()` the indented form a person might edit.
 
 use std::fmt;
 
 const MAX_DEPTH: usize = 32;
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Json {
     Null,
     Bool(bool),
@@ -19,6 +23,182 @@ pub enum Json {
     Str(String),
     Arr(Vec<Json>),
     Obj(Vec<(String, Json)>),
+}
+
+impl Json {
+    /// Field lookup on an object; `None` for anything else.
+    pub fn get(&self, key: &str) -> Option<&Json> {
+        match self {
+            Json::Obj(fields) => fields.iter().find(|(k, _)| k == key).map(|(_, v)| v),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(&self) -> Option<&str> {
+        match self {
+            Json::Str(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    pub fn as_bool(&self) -> Option<bool> {
+        match self {
+            Json::Bool(b) => Some(*b),
+            _ => None,
+        }
+    }
+
+    pub fn as_f64(&self) -> Option<f64> {
+        match self {
+            Json::Num(n) => Some(*n),
+            _ => None,
+        }
+    }
+
+    /// Two-space indented output, for files a person may open in an editor.
+    pub fn pretty(&self) -> String {
+        let mut out = String::new();
+        self.write_pretty(&mut out, 0);
+        out.push('\n');
+        out
+    }
+
+    fn write_pretty(&self, out: &mut String, depth: usize) {
+        let pad = |out: &mut String, depth: usize| out.push_str(&"  ".repeat(depth));
+        match self {
+            Json::Arr(items) if !items.is_empty() => {
+                out.push_str("[\n");
+                for (i, v) in items.iter().enumerate() {
+                    pad(out, depth + 1);
+                    v.write_pretty(out, depth + 1);
+                    out.push_str(if i + 1 < items.len() { ",\n" } else { "\n" });
+                }
+                pad(out, depth);
+                out.push(']');
+            }
+            Json::Obj(fields) if !fields.is_empty() => {
+                out.push_str("{\n");
+                for (i, (k, v)) in fields.iter().enumerate() {
+                    pad(out, depth + 1);
+                    out.push_str(&format!("\"{}\": ", escape(k)));
+                    v.write_pretty(out, depth + 1);
+                    out.push_str(if i + 1 < fields.len() { ",\n" } else { "\n" });
+                }
+                pad(out, depth);
+                out.push('}');
+            }
+            scalar => out.push_str(&scalar.to_string()),
+        }
+    }
+}
+
+impl fmt::Display for Json {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Json::Null => f.write_str("null"),
+            Json::Bool(b) => write!(f, "{b}"),
+            // JSON has no NaN or infinity, and whole numbers read better
+            // without a trailing `.0`.
+            Json::Num(n) if !n.is_finite() => f.write_str("null"),
+            Json::Num(n) if n.fract() == 0.0 && n.abs() < 9e15 => write!(f, "{}", *n as i64),
+            Json::Num(n) => write!(f, "{n}"),
+            Json::Str(s) => write!(f, "\"{}\"", escape(s)),
+            Json::Arr(items) => {
+                f.write_str("[")?;
+                for (i, v) in items.iter().enumerate() {
+                    if i > 0 {
+                        f.write_str(",")?;
+                    }
+                    write!(f, "{v}")?;
+                }
+                f.write_str("]")
+            }
+            Json::Obj(fields) => {
+                f.write_str("{")?;
+                for (i, (k, v)) in fields.iter().enumerate() {
+                    if i > 0 {
+                        f.write_str(",")?;
+                    }
+                    write!(f, "\"{}\":{v}", escape(k))?;
+                }
+                f.write_str("}")
+            }
+        }
+    }
+}
+
+/// `obj([("ok", true.into()), ("total", 3.into())])`
+pub fn obj<const N: usize>(fields: [(&str, Json); N]) -> Json {
+    Json::Obj(
+        fields
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v))
+            .collect(),
+    )
+}
+
+impl From<&str> for Json {
+    fn from(s: &str) -> Self {
+        Json::Str(s.to_string())
+    }
+}
+
+impl From<String> for Json {
+    fn from(s: String) -> Self {
+        Json::Str(s)
+    }
+}
+
+impl From<bool> for Json {
+    fn from(b: bool) -> Self {
+        Json::Bool(b)
+    }
+}
+
+impl From<f64> for Json {
+    fn from(n: f64) -> Self {
+        Json::Num(n)
+    }
+}
+
+macro_rules! from_integer {
+    ($($t:ty)*) => {$(
+        impl From<$t> for Json {
+            fn from(n: $t) -> Self {
+                Json::Num(n as f64)
+            }
+        }
+    )*};
+}
+from_integer!(u16 u32 u64 usize i32 i64);
+
+impl<T: Into<Json>> From<Option<T>> for Json {
+    fn from(v: Option<T>) -> Self {
+        v.map_or(Json::Null, Into::into)
+    }
+}
+
+impl From<Vec<Json>> for Json {
+    fn from(items: Vec<Json>) -> Self {
+        Json::Arr(items)
+    }
+}
+
+/// String escaping for JSON output.
+pub fn escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 #[derive(Debug)]
@@ -339,5 +519,44 @@ mod tests {
     fn rejects_deep_nesting() {
         let deep = format!("{}1{}", "[".repeat(200), "]".repeat(200));
         assert!(parse(&deep).is_err());
+    }
+
+    #[test]
+    fn escapes_json_strings() {
+        assert_eq!(escape(r#"a"b\c"#), r#"a\"b\\c"#);
+        assert_eq!(escape("line\nbreak"), "line\\nbreak");
+        assert_eq!(escape("bell\u{7}"), "bell\\u0007");
+        assert_eq!(escape("plain"), "plain");
+    }
+
+    #[test]
+    fn writes_what_it_reads() {
+        let v = obj([
+            ("ok", true.into()),
+            ("n", 3u32.into()),
+            ("half", 0.5.into()),
+            ("s", "a\"b\n".into()),
+            ("none", Json::Null),
+            ("list", vec![1u32.into(), "x".into()].into()),
+            ("empty", Json::Obj(vec![])),
+        ]);
+        let compact = v.to_string();
+        assert_eq!(
+            compact,
+            r#"{"ok":true,"n":3,"half":0.5,"s":"a\"b\n","none":null,"list":[1,"x"],"empty":{}}"#
+        );
+        assert_eq!(parse(&compact).unwrap(), v);
+        assert_eq!(parse(&v.pretty()).unwrap(), v);
+        assert!(v.pretty().contains("\n  \"ok\": true,\n"));
+        assert_eq!(Json::Num(f64::NAN).to_string(), "null");
+    }
+
+    #[test]
+    fn looks_up_fields() {
+        let v = parse(r#"{"a":"x","b":false,"c":2}"#).unwrap();
+        assert_eq!(v.get("a").and_then(Json::as_str), Some("x"));
+        assert_eq!(v.get("b").and_then(Json::as_bool), Some(false));
+        assert_eq!(v.get("c").and_then(Json::as_f64), Some(2.0));
+        assert!(v.get("missing").is_none());
     }
 }

@@ -1,9 +1,10 @@
 # Per-user service: install with `make service`, or by hand into
 # ~/.config/systemd/user/ followed by
 #   systemctl --user daemon-reload && systemctl --user enable --now x-link-receiver
+# The panel is then at http://127.0.0.1:9876 whenever you are logged in.
 
 [Unit]
-Description=X link collector receiver (127.0.0.1:9876)
+Description=X link collector receiver and panel (127.0.0.1:9876)
 After=graphical-session.target
 
 [Service]
@@ -12,23 +13,23 @@ ExecStart=%h/.local/bin/x-link-receiver
 Restart=on-failure
 RestartSec=2
 
-# Uncomment to override where links are written; by default the receiver
-# resolves your localised desktop directory from ~/.config/user-dirs.dirs.
+# Where links and media go is set in the panel (Settings). Uncomment to fix
+# the links file here instead; the panel then shows it as read-only.
 #Environment=LINKS_FILE=%h/links.txt
 
-# The daemon reads one config file, appends to one text file and listens on
-# loopback. Nothing else needs to be reachable.
+# Besides appending to a text file on loopback, the daemon runs the downloads
+# the panel starts: Python writes under your home directory and reaches X over
+# IPv4 and IPv6. The system itself stays read-only to it.
 NoNewPrivileges=yes
 PrivateTmp=yes
-ProtectSystem=strict
+ProtectSystem=full
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectControlGroups=yes
-RestrictAddressFamilies=AF_INET AF_UNIX
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 RestrictNamespaces=yes
 RestrictRealtime=yes
 LockPersonality=yes
-MemoryDenyWriteExecute=yes
 
 [Install]
 WantedBy=default.target

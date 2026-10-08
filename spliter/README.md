@@ -1,7 +1,8 @@
 # spliter
 
 Pulls every downloaded file out of its per-handle folder and lays them side by
-side in one directory.
+side in one directory. The panel's **Folder** page does the same, with a preview
+and an undo button.
 
 ```sh
 ./x-flatten --dry-run     # see what would move, touch nothing
@@ -55,7 +56,11 @@ becomes `<name>~2.<ext>` rather than replacing the first.
 --videos-only       leave images in their folders
 --dry-run           list what would happen, change nothing
 --undo              reverse the last move using the manifest
+--no-config         ignore the panel's settings file
 ```
+
+The media folder and the destination chosen in the panel's Settings are the
+defaults here too; `--src` and `--dest` still win.
 
 Flattening loses the poster's name, since that only lived in the folder. Use
 `--prefix-handle` if you want it kept:

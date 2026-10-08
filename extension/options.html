@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>X Link Collector</title>
+<link rel="stylesheet" href="options.css">
+<script src="options.js" defer></script>
+</head>
+<body>
+<main>
+  <header class="head">
+    <img src="icons/icon-48.png" alt="" width="40" height="40">
+    <h1>X Link Collector</h1>
+  </header>
+
+  <section class="status" aria-live="polite">
+    <p class="state" id="state"><span class="dot" aria-hidden="true"></span><span id="state-text"></span></p>
+    <p class="detail" id="detail"></p>
+    <div class="buttons">
+      <button type="button" class="btn primary" id="panel" hidden></button>
+      <button type="button" class="btn" id="retry"></button>
+    </div>
+  </section>
+
+  <section class="start" id="start" aria-labelledby="start-title" hidden>
+    <h2 id="start-title"></h2>
+    <dl>
+      <dt>Windows</dt>
+      <dd id="start-windows"></dd>
+      <dt>Linux, macOS</dt>
+      <dd id="start-unix"></dd>
+    </dl>
+  </section>
+
+  <form class="port" id="form" novalidate>
+    <label class="label" for="port" id="port-label"></label>
+    <div class="row">
+      <input class="input" id="port" type="number" min="1" max="65535" inputmode="numeric" aria-describedby="port-help">
+      <button type="submit" class="btn" id="save"></button>
+      <span class="note" id="saved" role="status"></span>
+    </div>
+    <p class="help" id="port-help"></p>
+  </form>
+</main>
+</body>
+</html>

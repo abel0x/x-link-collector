@@ -4,6 +4,7 @@
     cp com.abel0x.x-link-receiver.plist ~/Library/LaunchAgents/
     launchctl load -w ~/Library/LaunchAgents/com.abel0x.x-link-receiver.plist
   ProgramArguments must be an absolute path; `make service` rewrites it.
+  The panel is then at http://127.0.0.1:9876 whenever you are logged in.
 -->
 <plist version="1.0">
 <dict>
@@ -14,6 +15,14 @@
   <array>
     <string>__BIN__</string>
   </array>
+
+  <!-- launchd starts agents with a bare PATH. The panel's downloads need
+       Python, and yt-dlp needs ffmpeg, wherever Homebrew put them. -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
 
   <key>RunAtLoad</key>
   <true/>

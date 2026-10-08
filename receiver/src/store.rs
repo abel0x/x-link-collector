@@ -12,9 +12,11 @@
 //!   disk before the extension is told it may close the tab.
 //! * If the file changes size behind our back (you edited or emptied it), the
 //!   dedupe set is rebuilt from disk before the next write.
+//! * Removing a link from the panel is the one rewrite: the file is written
+//!   whole to a sibling and renamed over, so a reader never sees half of it.
 
 use std::collections::HashSet;
-use std::fs::{self, OpenOptions};
+use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
@@ -59,6 +61,70 @@ impl Store {
 
     pub fn total(&self) -> usize {
         self.total
+    }
+
+    pub fn set_fsync(&mut self, fsync: bool) {
+        self.fsync = fsync;
+    }
+
+    /// `add` for a batch -- a pasted list can run to thousands of lines -- with
+    /// one fsync for the lot instead of one per line. Reports each link the way
+    /// `add` would.
+    pub fn add_all(&mut self, urls: &[String]) -> io::Result<Vec<bool>> {
+        let fsync = std::mem::replace(&mut self.fsync, false);
+        let added: io::Result<Vec<bool>> = urls.iter().map(|u| self.add(u)).collect();
+        self.fsync = fsync;
+        let added = added?;
+        if fsync && added.contains(&true) {
+            // Opened for writing: Windows refuses to flush a read-only handle.
+            OpenOptions::new()
+                .append(true)
+                .open(&self.path)?
+                .sync_data()?;
+        }
+        Ok(added)
+    }
+
+    /// Every link in file order, read from disk so hand edits show up.
+    pub fn links(&mut self) -> io::Result<Vec<String>> {
+        self.refresh_if_changed();
+        match fs::read_to_string(&self.path) {
+            Ok(text) => Ok(text
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty() && !l.starts_with('#'))
+                .map(str::to_string)
+                .collect()),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(Vec::new()),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Drop every line that is the same link as `url` -- for a tweet, any line
+    /// with its id. Comments and all other lines are kept byte for byte.
+    /// Returns `true` when something was removed.
+    pub fn remove(&mut self, url: &str) -> io::Result<bool> {
+        let key = url::dedupe_key(url.trim());
+        let text = match fs::read_to_string(&self.path) {
+            Ok(text) => text,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(false),
+            Err(e) => return Err(e),
+        };
+        let mut kept = String::with_capacity(text.len());
+        let mut removed = false;
+        for line in text.split_inclusive('\n') {
+            let l = line.trim();
+            if !l.is_empty() && !l.starts_with('#') && url::dedupe_key(l) == key {
+                removed = true;
+                continue;
+            }
+            kept.push_str(line);
+        }
+        if removed {
+            write_atomic(&self.path, kept.as_bytes(), self.fsync)?;
+            self.reload()?;
+        }
+        Ok(removed)
     }
 
     /// Append `url` unless an equivalent link is already recorded.
@@ -124,6 +190,30 @@ impl Store {
 
 fn file_len(path: &Path) -> u64 {
     fs::metadata(path).map_or(0, |m| m.len())
+}
+
+/// Replace `path` in one step: write a hidden sibling, then rename it over.
+/// Whoever reads the file meanwhile -- x-download, an editor -- gets the old
+/// version or the new one, never a mix.
+pub fn write_atomic(path: &Path, data: &[u8], sync: bool) -> io::Result<()> {
+    let name = path
+        .file_name()
+        .map_or_else(|| "file".into(), |n| n.to_string_lossy());
+    let tmp = path.with_file_name(format!(".{name}.tmp"));
+    let result = write_file(&tmp, data, sync).and_then(|()| fs::rename(&tmp, path));
+    if result.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    result
+}
+
+fn write_file(path: &Path, data: &[u8], sync: bool) -> io::Result<()> {
+    let mut f = File::create(path)?;
+    f.write_all(data)?;
+    if sync {
+        f.sync_all()?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -196,6 +286,72 @@ mod tests {
             "https://x.com/a/status/1\n"
         );
         assert_eq!(s.total(), 1);
+        cleanup(&p);
+    }
+
+    #[test]
+    fn lists_and_removes_links() {
+        let p = temp_path("remove");
+        fs::create_dir_all(p.parent().unwrap()).unwrap();
+        fs::write(
+            &p,
+            "# my list\nhttps://x.com/a/status/1\nhttps://example.com/x\r\nhttps://x.com/b/status/2\n",
+        )
+        .unwrap();
+        let mut s = Store::open(p.clone(), false).unwrap();
+        assert_eq!(
+            s.links().unwrap(),
+            [
+                "https://x.com/a/status/1",
+                "https://example.com/x",
+                "https://x.com/b/status/2"
+            ]
+        );
+
+        // Same tweet id under another handle is the same link.
+        assert!(s.remove("https://twitter.com/zz/status/1?s=20").unwrap());
+        assert!(!s.remove("https://x.com/a/status/1").unwrap());
+        assert_eq!(
+            fs::read_to_string(&p).unwrap(),
+            "# my list\nhttps://example.com/x\r\nhttps://x.com/b/status/2\n"
+        );
+        assert_eq!(s.total(), 2);
+        // Gone from the dedupe set too, so it can be collected again.
+        assert!(s.add("https://x.com/a/status/1").unwrap());
+        cleanup(&p);
+    }
+
+    #[test]
+    fn adds_a_batch() {
+        let p = temp_path("batch");
+        let mut s = Store::open(p.clone(), true).unwrap();
+        s.add("https://x.com/a/status/1").unwrap();
+        let batch: Vec<String> = [
+            "https://x.com/b/status/2",
+            "https://x.com/a/status/1",
+            "https://example.com/x",
+            "https://x.com/other/status/2",
+        ]
+        .map(String::from)
+        .to_vec();
+        assert_eq!(s.add_all(&batch).unwrap(), [true, false, true, false]);
+        assert_eq!(s.total(), 3);
+        assert_eq!(fs::read_to_string(&p).unwrap().lines().count(), 3);
+        cleanup(&p);
+    }
+
+    #[test]
+    fn atomic_write_leaves_no_temp_file() {
+        let p = temp_path("atomic");
+        fs::create_dir_all(p.parent().unwrap()).unwrap();
+        write_atomic(&p, b"one\n", false).unwrap();
+        write_atomic(&p, b"two\n", true).unwrap();
+        assert_eq!(fs::read_to_string(&p).unwrap(), "two\n");
+        let names: Vec<_> = fs::read_dir(p.parent().unwrap())
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(names, ["links.txt"]);
         cleanup(&p);
     }
 }

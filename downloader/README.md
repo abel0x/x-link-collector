@@ -3,7 +3,8 @@
 Downloads the media behind every link the extension collected, at the best
 quality X serves, and never fetches the same tweet twice.
 
-From the repository root:
+The panel's **Download** page runs it for you, with every choice below as a
+button or a field. From the repository root:
 
 ```sh
 make downloader-setup     # once: yt-dlp + gallery-dl into .venv, no sudo
@@ -30,10 +31,11 @@ those two projects track it, and an extractor written here would rot within a
 month. What `x-download` owns is everything around them: which links still need
 doing, retry policy, naming, parallelism, and idempotency.
 
-Because they rot, **update them when downloads start failing**:
+Because they rot, **update them when downloads start failing** — the panel's
+Settings page has a button for it, or:
 
 ```sh
-make downloader-update
+make downloader-update    # same as: x-download --setup
 ```
 
 ## About "highest quality"
@@ -162,6 +164,14 @@ text-only one; only gallery-dl's `'Unavailable'` separates them. A hard failure
 from any tool therefore outranks a media-less verdict, which keeps restricted
 links in the retry queue instead of retiring them.
 
+## Settings from the panel
+
+What you choose in the panel is saved to one file (see the main README for
+where), and `x-download` takes its defaults from it: the links file, the media
+folder, parallel downloads, mirrors, login, timeout and `--metadata`. An option
+given on the command line still wins, and `--no-config` ignores the file
+altogether. Without the file, everything is as described here.
+
 ## Options
 
 ```
@@ -180,6 +190,10 @@ links in the retry queue instead of retiring them.
 --timeout SECONDS   per-link timeout (default: 900)
 --status            print a summary and exit
 --dry-run           list what would be downloaded
+--only URL          just this link from the links file; repeat for more
+--setup             install or upgrade yt-dlp + gallery-dl in downloader/.venv
+--check             show which tools a download would use, with versions
+--no-config         ignore the panel's settings file
 ```
 
 ## Failure reasons you may see

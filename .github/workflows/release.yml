@@ -1,7 +1,7 @@
 name: release
 
-# Tag a version and the binaries build themselves:
-#   git tag v1.0.0 && git push origin v1.0.0
+# Tag a version and the archives build themselves:
+#   git tag v1.1.0 && git push origin v1.1.0
 on:
   push:
     tags: ["v*"]
@@ -11,7 +11,7 @@ permissions:
   contents: write
 
 jobs:
-  binaries:
+  archives:
     name: ${{ matrix.label }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -35,13 +35,20 @@ jobs:
       - name: build
         run: cargo build --release --locked --target ${{ matrix.target }} --manifest-path receiver/Cargo.toml
 
+      # The whole kit, not just the binary: the receiver finds the downloader
+      # and the flattener next to itself, and the extension is loaded from
+      # the extension/ folder inside the archive.
       - name: package (unix)
         if: runner.os != 'Windows'
         run: |
-          staging="x-link-receiver-${{ matrix.label }}"
-          mkdir -p "$staging"
+          staging="x-link-collector-${{ matrix.label }}"
+          mkdir -p "$staging/downloader" "$staging/spliter"
           cp "receiver/target/${{ matrix.target }}/release/x-link-receiver" "$staging/"
-          cp LICENSE NOTICE README.md "$staging/"
+          cp downloader/x-download downloader/README.md "$staging/downloader/"
+          cp spliter/x-flatten spliter/README.md "$staging/spliter/"
+          cp -R extension "$staging/extension"
+          rm -rf "$staging/extension/test"
+          cp LICENSE NOTICE README.md CHANGELOG.md "$staging/"
           tar czf "$staging.tar.gz" "$staging"
           shasum -a 256 "$staging.tar.gz" > "$staging.tar.gz.sha256"
 
@@ -49,10 +56,14 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $staging = "x-link-receiver-${{ matrix.label }}"
-          New-Item -ItemType Directory -Force -Path $staging | Out-Null
+          $staging = "x-link-collector-${{ matrix.label }}"
+          New-Item -ItemType Directory -Force -Path "$staging/downloader", "$staging/spliter" | Out-Null
           Copy-Item "receiver/target/${{ matrix.target }}/release/x-link-receiver.exe" $staging
-          Copy-Item LICENSE, NOTICE, README.md $staging
+          Copy-Item downloader/x-download, downloader/README.md "$staging/downloader"
+          Copy-Item spliter/x-flatten, spliter/README.md "$staging/spliter"
+          Copy-Item extension "$staging/extension" -Recurse
+          Remove-Item "$staging/extension/test" -Recurse -Force
+          Copy-Item LICENSE, NOTICE, README.md, CHANGELOG.md $staging
           Compress-Archive -Path $staging -DestinationPath "$staging.zip"
           (Get-FileHash "$staging.zip" -Algorithm SHA256).Hash.ToLower() + "  $staging.zip" |
             Out-File -Encoding ascii "$staging.zip.sha256"
@@ -86,9 +97,20 @@ jobs:
 
   publish:
     name: publish release
-    needs: [binaries, extension]
+    needs: [archives, extension]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+      # The release text is this version's section of CHANGELOG.md.
+      - name: release notes
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v v="$version" '
+            $0 ~ "^## \\[?" v "\\]?" { found = 1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md > notes.md
+          test -s notes.md || echo "See CHANGELOG.md." > notes.md
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -96,5 +118,5 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           files: artifacts/*
-          generate_release_notes: true
+          body_path: notes.md
           draft: true

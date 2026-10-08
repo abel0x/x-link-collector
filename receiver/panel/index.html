@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="referrer" content="no-referrer">
+<title>x-link-collector</title>
+<link rel="icon" href="/icon.png">
+<link rel="stylesheet" href="/panel.css">
+<script src="/panel.js" defer></script>
+</head>
+<body>
+<svg class="sprite" aria-hidden="true">
+  <symbol id="i-done" viewBox="0 0 16 16"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-failed" viewBox="0 0 16 16"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-no-media" viewBox="0 0 16 16"><path d="M4 8h8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-pending" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5" fill="none" stroke="currentColor" stroke-width="1.75"/><path d="M8 5.5V8l1.75 1.25" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 20 20"><circle cx="10" cy="10" r="3.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.7 4.7l1.4 1.4M13.9 13.9l1.4 1.4M4.7 15.3l1.4-1.4M13.9 6.1l1.4-1.4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 20 20"><path d="M15.5 12.4A6 6 0 0 1 7.6 4.5a6 6 0 1 0 7.9 7.9z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></symbol>
+  <symbol id="i-play" viewBox="0 0 20 20"><circle cx="10" cy="10" r="9" fill="rgba(0,0,0,.55)"/><path d="M8 6.5v7l5.5-3.5z" fill="#fff"/></symbol>
+  <symbol id="i-search" viewBox="0 0 20 20"><circle cx="8.5" cy="8.5" r="5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12.5 12.5l4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+</svg>
+
+<a class="skip" href="#main" data-t="skip">Skip to content</a>
+
+<header class="bar">
+  <a class="brand" href="#overview">
+    <img src="/icon.png" alt="" width="28" height="28">
+    <span>x-link-collector</span>
+  </a>
+  <nav class="tabs" aria-label="Sections">
+    <a href="#overview" data-view="overview" data-t="nav.overview">Overview</a>
+    <a href="#links" data-view="links" data-t="nav.links">Links</a>
+    <a href="#download" data-view="download" data-t="nav.download">Download</a>
+    <a href="#folder" data-view="folder" data-t="nav.folder">Folder</a>
+    <a href="#settings" data-view="settings" data-t="nav.settings">Settings</a>
+  </nav>
+  <div class="bar-end">
+    <span class="conn" id="conn"><span class="dot"></span><span class="conn-text" id="conn-text"></span></span>
+    <button type="button" class="btn quiet small" id="lang"></button>
+    <button type="button" class="icon-btn" id="theme"><svg class="icon"><use href="#i-moon"/></svg></button>
+  </div>
+</header>
+
+<p class="banner" id="offline" role="alert" hidden data-t="offline"></p>
+<p class="banner" id="restart" hidden></p>
+
+<main id="main" tabindex="-1">
+
+<!-- ================================================================ overview -->
+<section class="view" id="view-overview" aria-labelledby="ov-title" hidden>
+  <div class="hero">
+    <div class="hero-text">
+      <h1 class="hero-title" id="ov-title" tabindex="-1"></h1>
+      <p class="hero-sub" id="ov-sub"></p>
+    </div>
+    <div class="hero-actions">
+      <button type="button" class="btn primary big" id="ov-go"></button>
+      <button type="button" class="btn big" id="ov-stop" hidden data-t="job.stop">Stop</button>
+    </div>
+  </div>
+
+  <figure class="strip" id="strip-figure">
+    <div class="strip-area" id="strip-area">
+      <canvas id="strip" tabindex="0" role="img"></canvas>
+      <div class="tip" id="strip-tip" hidden></div>
+    </div>
+    <figcaption class="legend">
+      <ul class="legend-items" id="legend"></ul>
+      <span class="legend-note" id="legend-note"></span>
+    </figcaption>
+  </figure>
+
+  <section class="setup" id="setup" aria-labelledby="setup-title" hidden>
+    <h2 id="setup-title" data-t="setup.title">Finish setting up</h2>
+    <ul class="setup-items" id="setup-items"></ul>
+  </section>
+
+  <div class="ov-grid">
+    <section aria-labelledby="act-title">
+      <h2 id="act-title" data-t="ov.perDay">Collected per day</h2>
+      <div class="chart">
+        <div class="bars" id="bars"></div>
+        <p class="bars-empty" id="bars-empty" hidden data-t="ov.quiet"></p>
+      </div>
+      <div class="bars-axis"><span data-t="ov.daysAgo">14 days ago</span><span data-t="ov.today">Today</span></div>
+      <table class="visually-hidden" id="bars-table"></table>
+    </section>
+    <section aria-labelledby="latest-title">
+      <div class="section-head">
+        <h2 id="latest-title" data-t="ov.latest">Latest</h2>
+        <a class="quiet-link" href="#links" data-t="ov.allLinks">All links</a>
+      </div>
+      <ol class="latest" id="latest"></ol>
+    </section>
+  </div>
+</section>
+
+<!-- =================================================================== links -->
+<section class="view" id="view-links" aria-labelledby="links-title" hidden>
+  <div class="page-head">
+    <h1 id="links-title" tabindex="-1" data-t="links.title">Links</h1>
+    <p class="page-lead mono-path" id="links-file"></p>
+  </div>
+
+  <div class="toolbar">
+    <label class="search">
+      <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
+      <span class="visually-hidden" data-t="links.search">Search</span>
+      <input class="input" type="search" id="links-q" autocomplete="off" data-t-placeholder="links.search">
+    </label>
+    <div class="segmented" id="links-filter" role="group" data-t-label="links.filterLabel"></div>
+    <button type="button" class="btn" id="links-add-open" aria-expanded="false" aria-controls="links-add" data-t="links.add">Add links</button>
+  </div>
+
+  <form class="add-box" id="links-add" hidden>
+    <label class="field">
+      <span class="label" data-t="links.add">Add links</span>
+      <textarea class="input mono" id="links-add-text" rows="5" spellcheck="false"></textarea>
+      <span class="help" data-t="links.addHelp"></span>
+    </label>
+    <div class="row-buttons">
+      <button type="submit" class="btn primary" data-t="links.addSave">Add to links.txt</button>
+      <button type="button" class="btn" id="links-add-close" data-t="links.addCancel">Close</button>
+    </div>
+  </form>
+
+  <p class="list-meta" id="links-meta" aria-live="polite"></p>
+  <ol class="list" id="links-list"></ol>
+  <p class="list-empty" id="links-empty" hidden></p>
+  <button type="button" class="btn more" id="links-more" hidden></button>
+</section>
+
+<!-- ================================================================ download -->
+<section class="view" id="view-download" aria-labelledby="dl-title" hidden>
+  <div class="page-head">
+    <h1 id="dl-title" tabindex="-1" data-t="dl.title">Download media</h1>
+    <p class="page-lead" data-t="dl.lead"></p>
+  </div>
+
+  <div class="dl-grid">
+    <div class="field">
+      <span class="label" id="dl-route-label" data-t="dl.route">Where to fetch from</span>
+      <div class="segmented" id="dl-route" role="group" aria-labelledby="dl-route-label"></div>
+      <span class="help" id="dl-route-help"></span>
+    </div>
+
+    <div class="field">
+      <label class="label" for="dl-jobs" data-t="dl.jobs">Parallel downloads</label>
+      <div class="stepper">
+        <button type="button" class="btn small" id="dl-jobs-less" aria-label="−">−</button>
+        <input class="input" type="number" id="dl-jobs" min="1" max="10" inputmode="numeric">
+        <button type="button" class="btn small" id="dl-jobs-more" aria-label="+">+</button>
+      </div>
+      <span class="help" data-t="dl.jobsHelp"></span>
+    </div>
+
+    <div class="field">
+      <label class="label" for="dl-cookies" data-t="dl.cookies">Log in with</label>
+      <select class="input" id="dl-cookies"></select>
+      <input class="input mono" type="text" id="dl-cookies-path" hidden spellcheck="false" data-t-placeholder="dl.cookiesPath">
+      <span class="help" data-t="dl.cookiesHelp"></span>
+    </div>
+
+    <fieldset class="field once">
+      <legend class="label" data-t="dl.once">For this run</legend>
+      <label class="check"><input type="checkbox" id="dl-retry"><span data-t="dl.retry">Try failed links again</span></label>
+      <label class="limit">
+        <span data-t="dl.limit">Stop after this many links</span>
+        <input class="input" type="number" id="dl-limit" min="1" inputmode="numeric">
+      </label>
+      <span class="help" data-t="dl.limitHelp"></span>
+    </fieldset>
+  </div>
+
+  <div class="row-buttons">
+    <button type="button" class="btn primary big" id="dl-go"></button>
+    <button type="button" class="btn big" id="dl-preview" data-t="dl.preview">Preview</button>
+  </div>
+
+  <label class="switch auto">
+    <input type="checkbox" role="switch" id="dl-auto">
+    <span class="knob" aria-hidden="true"></span>
+    <span class="switch-text"><span data-t="dl.auto"></span><span class="help" data-t="dl.autoHelp"></span></span>
+  </label>
+
+  <div class="job-slot" data-slot="download"></div>
+</section>
+
+<!-- ================================================================== folder -->
+<section class="view" id="view-folder" aria-labelledby="fo-title" hidden>
+  <div class="page-head">
+    <h1 id="fo-title" tabindex="-1" data-t="fo.title">Media folder</h1>
+    <p class="page-lead mono-path" id="fo-path"></p>
+  </div>
+  <div class="folder-facts">
+    <p class="folder-count" id="fo-count"></p>
+    <button type="button" class="btn" id="fo-open" data-t="fo.open">Open folder</button>
+  </div>
+
+  <section class="block" aria-labelledby="fo-flat-title">
+    <h2 id="fo-flat-title" data-t="fo.flat">Put everything in one folder</h2>
+    <p class="help wide" data-t="fo.flatHelp"></p>
+    <div class="field">
+      <label class="label" for="fo-dest" data-t="fo.dest">Destination</label>
+      <input class="input mono" type="text" id="fo-dest" spellcheck="false">
+    </div>
+    <label class="check"><input type="checkbox" id="fo-prefix"><span data-t="fo.prefix"></span></label>
+    <label class="check"><input type="checkbox" id="fo-videos"><span data-t="fo.videos"></span></label>
+    <label class="check"><input type="checkbox" id="fo-copy"><span data-t="fo.copy"></span></label>
+    <div class="row-buttons">
+      <button type="button" class="btn" id="fo-preview" data-t="fo.preview">Preview</button>
+      <button type="button" class="btn primary" id="fo-go" data-t="fo.flatten">Flatten</button>
+      <button type="button" class="btn" id="fo-undo" hidden data-t="fo.undo">Undo flatten</button>
+    </div>
+  </section>
+
+  <div class="job-slot" data-slot="folder"></div>
+</section>
+
+<!-- ================================================================ settings -->
+<section class="view" id="view-settings" aria-labelledby="st-title" hidden>
+  <div class="page-head">
+    <h1 id="st-title" tabindex="-1" data-t="st.title">Settings</h1>
+  </div>
+  <form id="settings-form" novalidate></form>
+
+  <section class="block" aria-labelledby="st-tools-title">
+    <h2 id="st-tools-title" data-t="st.tools">Download tools</h2>
+    <dl class="facts" id="tools-facts"></dl>
+    <div class="row-buttons">
+      <button type="button" class="btn primary" id="tools-install" data-t="st.install">Install or update</button>
+      <button type="button" class="btn" id="tools-check" data-t="st.check">Check again</button>
+    </div>
+    <div class="job-slot" data-slot="settings"></div>
+  </section>
+
+  <section class="block" aria-labelledby="st-about-title">
+    <h2 id="st-about-title" data-t="st.about">About</h2>
+    <dl class="facts" id="about-facts"></dl>
+    <div class="row-buttons">
+      <button type="button" class="btn danger" id="quit" data-t="st.quit">Quit x-link-receiver</button>
+    </div>
+    <p class="help quit-help" data-t="st.quitHelp"></p>
+  </section>
+</section>
+
+</main>
+
+<!-- one job panel, moved into whichever page is showing -->
+<section class="job" id="job" aria-labelledby="job-title" hidden>
+  <div class="job-head">
+    <h2 class="job-title" id="job-title"></h2>
+    <p class="job-meta" id="job-meta" aria-live="polite"></p>
+    <button type="button" class="btn" id="job-stop" data-t="job.stop">Stop</button>
+  </div>
+  <div class="progress" id="job-progress"><div class="progress-fill" id="job-fill"></div></div>
+  <pre class="console" id="job-log" tabindex="0" data-t-label="job.output"></pre>
+</section>
+
+<div class="savebar" id="savebar" hidden>
+  <span data-t="save.unsaved">Unsaved changes</span>
+  <button type="button" class="btn small" id="save-discard" data-t="save.discard">Discard</button>
+  <button type="button" class="btn small primary" id="save-go" data-t="save.save">Save changes</button>
+</div>
+
+<div class="tip floating" id="tip" hidden></div>
+<div class="toasts" id="toasts"></div>
+
+<dialog class="viewer" id="viewer" aria-labelledby="viewer-title">
+  <div class="viewer-head">
+    <h2 id="viewer-title"></h2>
+    <span class="viewer-count" id="viewer-count"></span>
+    <button type="button" class="btn small quiet" id="viewer-close" data-t="viewer.close">Close</button>
+  </div>
+  <div class="viewer-stage" id="viewer-stage"></div>
+  <div class="viewer-foot">
+    <button type="button" class="btn small" id="viewer-prev" data-t="viewer.prev">Previous</button>
+    <button type="button" class="btn small" id="viewer-next" data-t="viewer.next">Next</button>
+    <a class="btn small quiet" id="viewer-open" target="_blank" rel="noopener noreferrer"></a>
+  </div>
+</dialog>
+
+<dialog class="confirm" id="confirm" aria-labelledby="confirm-title">
+  <h2 id="confirm-title"></h2>
+  <p id="confirm-body"></p>
+  <div class="row-buttons end">
+    <button type="button" class="btn" id="confirm-cancel"></button>
+    <button type="button" class="btn primary" id="confirm-ok"></button>
+  </div>
+</dialog>
+</body>
+</html>

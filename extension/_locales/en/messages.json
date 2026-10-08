@@ -1,0 +1,14 @@
+{
+  "description": {
+    "message": "Files x.com / twitter.com status links into a local links.txt and closes the tab."
+  },
+  "actionTitle": {
+    "message": "X Link Collector - click to open the panel"
+  },
+  "menuLink": {
+    "message": "Collect this tweet"
+  },
+  "menuPage": {
+    "message": "Collect the tweet on this page"
+  }
+}

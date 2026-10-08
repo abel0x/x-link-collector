@@ -80,6 +80,31 @@ def desktop_dir() -> Path:
     return base / "Desktop"
 
 
+def config_path() -> Path:
+    """The settings file the panel writes; the same lookup x-download does."""
+    explicit = os.environ.get("X_LINK_COLLECTOR_CONFIG")
+    if explicit:
+        return Path(explicit).expanduser()
+    base = home()
+    if sys.platform == "win32":
+        root = Path(os.environ.get("APPDATA") or base / "AppData" / "Roaming")
+    elif sys.platform == "darwin":
+        root = base / "Library" / "Application Support"
+    else:
+        root = Path(os.environ.get("XDG_CONFIG_HOME") or base / ".config")
+    return root / "x-link-collector" / "config.json"
+
+
+def setting_path(key: str) -> Path | None:
+    """One folder from the panel's settings, if it names one."""
+    try:
+        data = json.loads(config_path().read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        return None
+    value = data.get(key) if isinstance(data, dict) else None
+    return Path(value.strip()) if isinstance(value, str) and value.strip() else None
+
+
 def human(size: float) -> str:
     for unit in ("B", "KB", "MB", "GB"):
         if size < 1024 or unit == "GB":
@@ -289,13 +314,17 @@ examples:
                    help="list what would happen, change nothing")
     p.add_argument("--undo", action="store_true",
                    help="reverse the last move using the manifest")
+    p.add_argument("--no-config", action="store_true",
+                   help=f"ignore the panel's settings file ({config_path()})")
     return p
 
 
 def main(argv: list[str]) -> int:
     opts = build_parser().parse_args(argv)
-    opts.src = (opts.src or desktop_dir() / "x-media").expanduser()
-    opts.dest = (opts.dest or opts.src / "x-media").expanduser()
+    # The panel's media folder and flatten target are the defaults; options win.
+    setting = (lambda key: None) if opts.no_config else setting_path
+    opts.src = (opts.src or setting("media_dir") or desktop_dir() / "x-media").expanduser()
+    opts.dest = (opts.dest or setting("flatten_dest") or opts.src / "x-media").expanduser()
     if opts.src.resolve() == opts.dest.resolve():
         print("--src and --dest are the same folder", file=sys.stderr)
         return 2
