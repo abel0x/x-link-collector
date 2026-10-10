@@ -1,6 +1,6 @@
 [package]
 name = "x-link-receiver"
-version = "1.1.0"
+version = "1.1.1"
 edition = "2021"
 rust-version = "1.65"
 description = "Zero-dependency loopback receiver that files collected links, with a panel to run the rest of x-link-collector."
