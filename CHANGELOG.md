@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.1] - 2026-10-10
+
+### Added
+
+- **A signed Firefox add-on.** The release now carries
+  `x-link-collector-firefox.xpi`, signed by Mozilla, so Firefox 128 and newer
+  keep the extension installed across restarts. 1.1.0 shipped without it.
+
 ## [1.1.0] - 2026-10-08
 
 ### Added
