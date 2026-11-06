@@ -95,6 +95,25 @@ const WORDS = {
     'links.openOther': 'Open',
     'links.download': 'Download',
     'links.retry': 'Try again',
+    'again.title': 'Download again',
+    'again.leadRemember': 'Every downloaded link is remembered, even after you move its files out of the media folder, so it is never fetched twice. To fetch some again on purpose, ask for them here.',
+    'again.leadForget': 'Downloads are not remembered once their files leave the media folder: the next run fetches those links again. Settings can change that.',
+    'again.gone': ['{n} downloaded link is no longer in the media folder. It stays as it is unless you download it again.', '{n} downloaded links are no longer in the media folder. They stay as they are unless you download them again.'],
+    'again.goneForget': ['{n} downloaded link is no longer in the media folder. The next download fetches it again.', '{n} downloaded links are no longer in the media folder. The next download fetches them again.'],
+    'again.goneGo': ['Download {n} again', 'Download all {n} again'],
+    'again.goneTitle': ['Download {n} link again?', 'Download {n} links again?'],
+    'again.goneBody': 'Their files are no longer in {dir}. They are downloaded into it once more.',
+    'again.show': 'Show them',
+    'again.paste': 'Links to download again',
+    'again.pasteHelp': 'One per line. These are downloaded even if they were downloaded before.',
+    'again.go': 'Download these again',
+    'again.none': 'Paste at least one link.',
+    'links.gone': 'Moved away',
+    'links.moved': 'files no longer here',
+    'links.again': 'Download again',
+    'st.remember_downloads': 'Remember downloads after their files are moved',
+    'st.remember_downloadsHelp': 'On: a link downloaded once is never downloaded again by itself, even if you move or delete its files. Off: a link whose files are gone from the media folder is downloaded again.',
+    'st.historyFile': 'Download history',
     'links.show': 'Show the media',
     'viewer.prev': 'Previous',
     'viewer.next': 'Next',
@@ -344,6 +363,25 @@ const WORDS = {
     'links.openOther': 'Aç',
     'links.download': 'İndir',
     'links.retry': 'Yeniden dene',
+    'again.title': 'Yeniden indir',
+    'again.leadRemember': 'İndirilen her bağlantı hatırlanır; dosyalarını medya klasöründen başka yere taşısanız da bir daha indirilmez. Bazılarını bilerek yeniden indirmek isterseniz buradan isteyin.',
+    'again.leadForget': 'Dosyaları medya klasöründen çıkan indirmeler hatırlanmıyor: bir sonraki indirme bu bağlantıları yeniden indirir. Bunu Ayarlar’dan değiştirebilirsiniz.',
+    'again.gone': ['İndirilmiş {n} bağlantının dosyası artık medya klasöründe değil. Siz yeniden indirmedikçe olduğu gibi kalır.', 'İndirilmiş {n} bağlantının dosyaları artık medya klasöründe değil. Siz yeniden indirmedikçe olduğu gibi kalırlar.'],
+    'again.goneForget': ['İndirilmiş {n} bağlantının dosyası artık medya klasöründe değil. Bir sonraki indirme onu yeniden indirir.', 'İndirilmiş {n} bağlantının dosyaları artık medya klasöründe değil. Bir sonraki indirme onları yeniden indirir.'],
+    'again.goneGo': ['{n} bağlantıyı yeniden indir', '{n} bağlantının hepsini yeniden indir'],
+    'again.goneTitle': ['{n} bağlantı yeniden indirilsin mi?', '{n} bağlantı yeniden indirilsin mi?'],
+    'again.goneBody': 'Dosyaları artık {dir} içinde değil. Yeniden oraya indirilecekler.',
+    'again.show': 'Bunları göster',
+    'again.paste': 'Yeniden indirilecek bağlantılar',
+    'again.pasteHelp': 'Her satıra bir bağlantı. Daha önce indirilmiş olsalar da yeniden indirilirler.',
+    'again.go': 'Bunları yeniden indir',
+    'again.none': 'En az bir bağlantı yapıştırın.',
+    'links.gone': 'Taşınmış',
+    'links.moved': 'dosyaları burada değil',
+    'links.again': 'Yeniden indir',
+    'st.remember_downloads': 'Dosyaları taşınsa da indirilenleri hatırla',
+    'st.remember_downloadsHelp': 'Açık: bir kez indirilen bağlantı, dosyalarını taşısanız ya da silseniz de kendiliğinden bir daha indirilmez. Kapalı: dosyaları medya klasöründe olmayan bağlantı yeniden indirilir.',
+    'st.historyFile': 'İndirme geçmişi',
     'links.show': 'Medyayı göster',
     'viewer.prev': 'Önceki',
     'viewer.next': 'Sonraki',
@@ -1408,12 +1446,14 @@ function installTools() {
 
 /* ----------------------------------------------------------------- links */
 
-const FILTERS = ['all', 'pending', 'done', 'no-media', 'failed'];
+const FILTERS = ['all', 'pending', 'done', 'no-media', 'failed', 'gone'];
 
 function renderFilters() {
   const d = state.status?.downloads;
-  const counts = d ? { all: state.status.total, pending: d.pending, done: d.done, 'no-media': d.no_media, failed: d.failed } : {};
-  $('#links-filter').replaceChildren(...FILTERS.map((key) => h('button', {
+  const counts = d ? { all: state.status.total, pending: d.pending, done: d.done, 'no-media': d.no_media, failed: d.failed, gone: d.gone || 0 } : {};
+  // "Moved away" only once there is something to show under it.
+  const shown = FILTERS.filter((key) => key !== 'gone' || counts.gone || state.list.filter === 'gone');
+  $('#links-filter').replaceChildren(...shown.map((key) => h('button', {
     type: 'button',
     'aria-pressed': String(state.list.filter === key),
     onclick: () => {
@@ -1421,7 +1461,7 @@ function renderFilters() {
       renderFilters();
       loadLinks(true);
     },
-  }, key === 'all' ? t('links.all') : t(`state.${key}`), key in counts ? h('span', { class: 'count', text: num(counts[key]) }) : null)));
+  }, key === 'all' ? t('links.all') : key === 'gone' ? t('links.gone') : t(`state.${key}`), key in counts ? h('span', { class: 'count', text: num(counts[key]) }) : null)));
   $('#links-file').textContent = state.status?.links_file || '';
 }
 
@@ -1429,7 +1469,7 @@ function renderFilters() {
 function renderLinksMeta(before) {
   const s = state.status;
   const d = s.downloads;
-  const sig = `${s.total}|${d.done}|${d.no_media}|${d.failed}`;
+  const sig = `${s.total}|${d.done}|${d.no_media}|${d.failed}|${d.gone}`;
   if (state.list.sig !== sig) {
     renderFilters();
     const interacting = $('#view-links').contains(document.activeElement) && document.activeElement !== document.body
@@ -1450,7 +1490,7 @@ async function loadLinks(reset) {
     list.matched = data.matched;
     list.total = data.total;
     const d = state.status?.downloads;
-    if (state.status && d) list.sig = `${state.status.total}|${d.done}|${d.no_media}|${d.failed}`;
+    if (state.status && d) list.sig = `${state.status.total}|${d.done}|${d.no_media}|${d.failed}|${d.gone}`;
     renderLinks();
   } catch (e) {
     toast(explain(e), 'error');
@@ -1489,7 +1529,8 @@ const lazyVideos = 'IntersectionObserver' in window ? new IntersectionObserver((
 }, { rootMargin: '200px' }) : null;
 
 function thumb(item) {
-  const files = (item.files || []).filter((f) => isVideo(f) || isImage(f));
+  // Moved away: there is nothing at those paths to show.
+  const files = item.gone ? [] : (item.files || []).filter((f) => isVideo(f) || isImage(f));
   if (!files.length) return h('span', { class: 'thumb empty', 'aria-hidden': 'true' });
   const button = h('button', {
     type: 'button',
@@ -1558,14 +1599,20 @@ function wireViewer() {
   });
 }
 
-function downloadOne(item, retry) {
-  startJob({ kind: 'download', only: [item.url], retry_failed: retry }, t('job.startedDownload'));
+function downloadOne(item, next) {
+  const body = next === 'again'
+    ? { kind: 'download', again: [item.url] }
+    : { kind: 'download', only: [item.url], retry_failed: next === 'retry' };
+  startJob(body, t('job.startedDownload'));
 }
 
 function linkRow(item) {
   const posted = item.id ? postedAt(item.id) : null;
-  // A row's own next step: fetch what is waiting, retry what did not come down.
-  const next = item.status === 'pending' ? 'download' : item.status === 'done' ? null : 'retry';
+  // A row's own next step: fetch what is waiting, retry what did not come
+  // down, and fetch once more what was downloaded but has since moved away.
+  const next = item.status === 'pending' ? 'download'
+    : item.status !== 'done' ? 'retry'
+      : item.gone ? 'again' : null;
   return h('li', { class: 'link-row' },
     thumb(item),
     h('span', { class: 'line', text: t('links.line', { n: item.line }) }),
@@ -1576,14 +1623,16 @@ function linkRow(item) {
     h('div', { class: 'dates' },
       posted ? h('span', { text: t('links.posted', { date: fmt.date.format(posted) }) }) : null,
       item.captured ? h('span', { text: t('links.collected', { ago: ago(item.captured) }) }) : null),
-    stateChip(item.status),
+    h('div', { class: 'status' },
+      stateChip(item.status),
+      item.gone ? h('span', { class: 'moved', text: t('links.moved') }) : null),
     h('div', { class: 'actions' },
       next ? h('button', {
         type: 'button',
         class: 'btn small quiet',
         text: t(`links.${next}`),
         disabled: isActive(state.status?.job),
-        onclick: () => downloadOne(item, next === 'retry'),
+        onclick: () => downloadOne(item, next),
       }) : null,
       h('a', { class: 'btn small quiet', href: item.url, target: '_blank', rel: 'noopener noreferrer', text: t(item.id ? 'links.open' : 'links.openOther') }),
       h('button', { type: 'button', class: 'btn small quiet', text: t('links.copy'), onclick: () => copyText(item.url) }),
@@ -1696,6 +1745,22 @@ function renderDownload() {
   }
 
   $('#dl-auto').checked = Boolean(s.auto_download);
+  renderAgain();
+}
+
+function renderAgain() {
+  const d = state.status?.downloads;
+  if (!d) return;
+  const remember = d.remember !== false;
+  $('#dl-again-lead').textContent = t(remember ? 'again.leadRemember' : 'again.leadForget');
+  const gone = d.gone || 0;
+  $('#dl-again-gone').hidden = gone === 0;
+  if (!gone) return;
+  $('#dl-again-gone-text').textContent = t(remember ? 'again.gone' : 'again.goneForget', { n: gone });
+  const go = $('#dl-again-gone-go');
+  go.textContent = t('again.goneGo', { n: gone });
+  go.disabled = isActive(state.status.job);
+  $('#dl-again-go').disabled = isActive(state.status.job);
 }
 
 async function saveNow(changes) {
@@ -1738,6 +1803,30 @@ function wireDownload() {
     startJob(downloadBody(e.currentTarget.dataset.retry ? { retry_failed: true } : {}), t('job.startedDownload'));
   });
   $('#dl-preview').addEventListener('click', () => startJob(downloadBody({ dry_run: true }), t('job.startedPreview')));
+
+  $('#dl-again-gone-go').addEventListener('click', async () => {
+    const n = state.status?.downloads?.gone || 0;
+    const sure = await confirmAction({
+      title: t('again.goneTitle', { n }),
+      body: t('again.goneBody', { dir: state.status.media_dir }),
+      action: t('again.goneGo', { n }),
+    });
+    if (sure) startJob({ kind: 'download', again_missing: true }, t('job.startedDownload'));
+  });
+  $('#dl-again-gone-show').addEventListener('click', () => {
+    state.list.filter = 'gone';
+    location.hash = '#links';
+  });
+  $('#dl-again-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const links = $('#dl-again-text').value.split(/\s+/).map((l) => l.trim()).filter(Boolean);
+    if (!links.length) {
+      toast(t('again.none'), 'error');
+      return;
+    }
+    startJob({ kind: 'download', again: links }, t('job.startedDownload'));
+    $('#dl-again-text').value = '';
+  });
   $('#ov-go').addEventListener('click', (e) => {
     startJob({ kind: 'download', retry_failed: Boolean(e.currentTarget.dataset.retry) }, t('job.startedDownload'));
   });
@@ -1903,6 +1992,7 @@ const FORM = [
     { key: 'timeout', kind: 'number', min: 30, max: 86400, unit: 'st.seconds' },
     { key: 'metadata', kind: 'switch' },
     { key: 'auto_download', kind: 'switch', help: () => t('dl.autoHelp') },
+    { key: 'remember_downloads', kind: 'switch' },
   ]],
   ['st.flatten', [
     { key: 'flatten_dest', kind: 'path', placeholder: (v) => v.effective.flatten_dest },
@@ -2154,6 +2244,7 @@ function renderAbout() {
     rows.push([t('st.configFile'), h('dd', {},
       h('span', { class: 'mono', text: view.config_file }), ' ',
       h('button', { type: 'button', class: 'btn small quiet', text: t('st.openFolder'), onclick: () => openThing('config') }))]);
+    rows.push([t('st.historyFile'), h('dd', { class: 'mono', text: view.effective.history_file })]);
   }
   rows.push([t('st.source'), h('dd', {}, link)]);
   $('#about-facts').replaceChildren(...rows.flatMap(([name, dd]) => [h('dt', { text: name }), dd]));

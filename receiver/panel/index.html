@@ -185,6 +185,28 @@
     <span class="switch-text"><span data-t="dl.auto"></span><span class="help" data-t="dl.autoHelp"></span></span>
   </label>
 
+  <section class="block" id="dl-again" aria-labelledby="dl-again-title">
+    <h2 id="dl-again-title" data-t="again.title">Download again</h2>
+    <p class="help wide" id="dl-again-lead"></p>
+    <div class="again-gone" id="dl-again-gone" hidden>
+      <p id="dl-again-gone-text"></p>
+      <div class="row-buttons">
+        <button type="button" class="btn primary" id="dl-again-gone-go"></button>
+        <button type="button" class="btn" id="dl-again-gone-show" data-t="again.show">Show them</button>
+      </div>
+    </div>
+    <form class="add-box" id="dl-again-form">
+      <label class="field">
+        <span class="label" data-t="again.paste">Links to download again</span>
+        <textarea class="input mono" id="dl-again-text" rows="4" spellcheck="false"></textarea>
+        <span class="help" data-t="again.pasteHelp"></span>
+      </label>
+      <div class="row-buttons">
+        <button type="submit" class="btn" id="dl-again-go" data-t="again.go">Download these again</button>
+      </div>
+    </form>
+  </section>
+
   <div class="job-slot" data-slot="download"></div>
 </section>
 

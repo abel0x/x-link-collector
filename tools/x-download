@@ -45,6 +45,11 @@ IS_WINDOWS = sys.platform == "win32"
 # A virtualenv puts its executables in Scripts\ on Windows and bin/ everywhere else.
 VENV_BIN = HERE / ".venv" / ("Scripts" if IS_WINDOWS else "bin")
 VENV_PYTHON = VENV_BIN / ("python.exe" if IS_WINDOWS else "python")
+# What has been downloaded lives next to the panel's settings, not in the
+# media folder: the media folder is the thing people move, empty and sync to
+# the cloud, and the record of what was fetched must not leave with it.
+HISTORY_FILE = "download-history.json"
+# Where 1.1 and earlier kept it. Still read, and folded into the history.
 STATE_FILE = ".x-download-state.json"
 
 # <handle>/<tweet id>-<n>.<ext> -- sorts chronologically, traces back to the
@@ -182,11 +187,19 @@ def config_defaults(config: dict) -> dict:
         out["cookies"] = cookies.strip()
     if config.get("metadata") is True:
         out["metadata"] = True
+    # Off: a link whose files are no longer in the media folder is fetched again.
+    if config.get("remember_downloads") is False:
+        out["again_missing"] = True
     if config.get("mirror") == "fallback":
         out["mirror"] = True
     elif config.get("mirror") == "only":
         out["mirror_only"] = True
     return out
+
+
+def history_path() -> Path:
+    """The download history: beside the settings file, wherever that is."""
+    return config_path().parent / HISTORY_FILE
 
 
 def setting_path(config: dict, key: str) -> Path | None:
@@ -228,23 +241,66 @@ def now() -> str:
 # --------------------------------------------------------------------- state
 
 class State:
-    """What has already been downloaded, so re-runs are cheap and idempotent."""
+    """
+    What has already been downloaded, so re-runs are cheap and idempotent.
 
-    def __init__(self, path: Path):
+    Entries are keyed by the link as it was first seen, and found again by
+    tweet id: /alice/status/1 and /bob/status/1 are one tweet, one entry.
+    """
+
+    def __init__(self, path: Path, legacy: Path | None = None):
         self.path = path
         self.lock = threading.Lock()
         self.entries: dict[str, dict] = {}
+        self.keys: dict[str, str] = {}
         self._dirty = False
         self._last_save = 0.0
         self.load()
+        if legacy:
+            self.adopt(legacy)
+
+    @staticmethod
+    def read(path: Path) -> dict[str, dict]:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}  # missing or corrupt: start over, files stay put
+        entries = data.get("entries") if isinstance(data, dict) else None
+        return entries if isinstance(entries, dict) else {}
 
     def load(self) -> None:
-        try:
-            data = json.loads(self.path.read_text(encoding="utf-8"))
-            if isinstance(data, dict) and isinstance(data.get("entries"), dict):
-                self.entries = data["entries"]
-        except (OSError, ValueError):
-            self.entries = {}  # missing or corrupt: start over, files stay put
+        self.entries = {}
+        self.keys = {}
+        for url, entry in self.read(self.path).items():
+            if isinstance(entry, dict):
+                self._put(url, entry)
+
+    def _put(self, url: str, entry: dict) -> None:
+        key = link_key(url)
+        known = self.keys.get(key)
+        if known is None:
+            self.keys[key] = url
+            self.entries[url] = entry
+        else:
+            self.entries[known] = entry
+
+    def adopt(self, legacy: Path) -> int:
+        """
+        Fold in a state file the old way left inside the media folder. What
+        the history already knows wins; only links it has never seen come in.
+        The old file is left where it is.
+        """
+        taken = 0
+        with self.lock:
+            for url, entry in self.read(legacy).items():
+                if isinstance(entry, dict) and link_key(url) not in self.keys:
+                    self._put(url, entry)
+                    taken += 1
+            if taken:
+                self._dirty = True
+        if taken:
+            self.save(force=True)
+        return taken
 
     def save(self, force: bool = False) -> None:
         with self.lock:
@@ -269,11 +325,13 @@ class State:
 
     def get(self, url: str) -> dict:
         with self.lock:
-            return dict(self.entries.get(url, {}))
+            known = self.keys.get(link_key(url))
+            return dict(self.entries.get(known, {})) if known else {}
 
     def record(self, url: str, **fields) -> None:
         with self.lock:
-            entry = self.entries.setdefault(url, {})
+            known = self.keys.setdefault(link_key(url), url)
+            entry = self.entries.setdefault(known, {})
             entry.update(fields)
             entry["at"] = now()
             self._dirty = True
@@ -285,6 +343,41 @@ class State:
                 status = entry.get("status", "?")
                 out[status] = out.get(status, 0) + 1
             return out
+
+
+# --------------------------------------------------------- what is on disk
+
+# <tweet id>-<n>.<ext>, also with x-flatten's <handle>- in front and its ~2
+# behind: the id is in every name either tool writes, so a file is found by
+# it wherever it has been moved inside the folders searched.
+MEDIA_NAME_RE = re.compile(r"(\d{1,25})-\d{1,4}(?:~\d+)?\.[A-Za-z0-9]{1,5}$")
+
+
+def ids_on_disk(roots: list[Path]) -> set[str]:
+    """Every tweet id that has a media file under any of these folders."""
+    found: set[str] = set()
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for _, _, names in os.walk(root):
+            for name in names:
+                if name.startswith(".") or name.endswith(".part"):
+                    continue
+                match = MEDIA_NAME_RE.search(name)
+                if match:
+                    found.add(match.group(1))
+    return found
+
+
+def is_gone(url: str, entry: dict, present: set[str]) -> bool:
+    """
+    Downloaded once, and nothing of it is in the media folder any more.
+    A link without a tweet id cannot be looked for, so it never counts.
+    """
+    if entry.get("status") != DONE:
+        return False
+    twid = tweet_id(url)
+    return bool(twid) and twid not in present
 
 
 # ----------------------------------------------------------------- downloads
@@ -329,7 +422,7 @@ def run(cmd: list[str], timeout: int) -> tuple[int, str]:
     return proc.returncode, (proc.stdout or "") + (proc.stderr or "")
 
 
-def run_ytdlp(url: str, opts, tools: Tools, api: str = "graphql") -> Result:
+def run_ytdlp(url: str, opts, tools: Tools, api: str = "graphql", fresh: bool = False) -> Result:
     """
     Video path. yt-dlp's default selection already picks the best X serves.
 
@@ -356,6 +449,8 @@ def run_ytdlp(url: str, opts, tools: Tools, api: str = "graphql") -> Result:
     ]
     if api != "graphql":
         cmd += ["--extractor-args", f"twitter:api={api}"]
+    if fresh:
+        cmd.append("--force-overwrites")  # asked for again: not "already there"
     if opts.metadata:
         cmd.append("--write-info-json")
     cmd += cookie_args(opts.cookies)
@@ -386,7 +481,7 @@ def run_ytdlp(url: str, opts, tools: Tools, api: str = "graphql") -> Result:
     )
 
 
-def run_gallery_dl(url: str, opts, tools: Tools) -> Result:
+def run_gallery_dl(url: str, opts, tools: Tools, fresh: bool = False) -> Result:
     """Image path. gallery-dl takes the `:orig` variant, which is the upload."""
     cmd = [
         *tools.gallery_dl,
@@ -398,6 +493,8 @@ def run_gallery_dl(url: str, opts, tools: Tools) -> Result:
     ]
     if opts.metadata:
         cmd.append("--write-metadata")
+    if fresh:
+        cmd.append("--no-skip")
     cmd += cookie_args(opts.cookies)
     cmd.append(url)
 
@@ -597,7 +694,7 @@ def last_error(output: str) -> str:
     return (lines[-1] if lines else "no output")[:300]
 
 
-def fetch(url: str, opts, tools: Tools) -> Result:
+def fetch(url: str, opts, tools: Tools, fresh: bool = False) -> Result:
     """
     Try each route in turn, cheapest and most private first:
 
@@ -618,18 +715,18 @@ def fetch(url: str, opts, tools: Tools) -> Result:
     attempts: list[Result] = []
 
     if tools.ytdlp:
-        first = run_ytdlp(url, opts, tools)
+        first = run_ytdlp(url, opts, tools, fresh=fresh)
         if first.status == DONE:
             return first
         attempts.append(first)
         if first.status == FAILED:
-            second = run_ytdlp(url, opts, tools, api="syndication")
+            second = run_ytdlp(url, opts, tools, api="syndication", fresh=fresh)
             if second.status == DONE:
                 return second
             attempts.append(second)
 
     if tools.gallery_dl:
-        images = run_gallery_dl(url, opts, tools)
+        images = run_gallery_dl(url, opts, tools, fresh=fresh)
         if images.status == DONE:
             return images
         attempts.append(images)
@@ -735,6 +832,18 @@ def only(links: list[str], wanted: list[str] | None) -> list[str]:
     return [url for url in links if link_key(url) in keys]
 
 
+def again_too(links: list[str], again: list[str] | None) -> list[str]:
+    """--again takes a link even when the links file no longer has it."""
+    keys = {link_key(url) for url in links}
+    extra = []
+    for url in again or []:
+        url = url.strip()
+        if url and link_key(url) not in keys:
+            keys.add(link_key(url))
+            extra.append(url)
+    return links + extra
+
+
 def read_links(path: Path) -> tuple[list[str], int, int]:
     """
     Links in file order, deduplicated. Returns (links, collapsed, skipped).
@@ -777,9 +886,26 @@ def read_links(path: Path) -> tuple[list[str], int, int]:
     return links, collapsed, skipped
 
 
-def pending(links: list[str], state: State, opts) -> list[str]:
+def gone_links(links: list[str], state: State, opts) -> set[str]:
+    """The link keys whose media has left every folder searched."""
+    present = ids_on_disk([opts.out, *opts.look_in])
+    return {
+        link_key(url) for url in links if is_gone(url, state.get(url), present)
+    }
+
+
+def pending(links: list[str], state: State, opts, gone: set[str] | None = None) -> list[str]:
+    """
+    What a run takes on. Links asked for again (--again, and with
+    --again-missing the ones whose files are gone) come along whatever their
+    record says; everything else follows it.
+    """
+    again = {link_key(url) for url in opts.again or []} | (gone or set())
     out = []
     for url in links:
+        if link_key(url) in again:
+            out.append(url)
+            continue
         entry = state.get(url)
         status = entry.get("status")
         if status == DONE:
@@ -803,7 +929,12 @@ def chunked(items: list[str], size: int) -> list[list[str]]:
 
 
 def process(links: list[str], state: State, opts, tools: Tools) -> dict[str, int]:
-    outstanding = pending(links, state, opts)
+    gone = gone_links(links, state, opts) if opts.again_missing else set()
+    if gone:
+        print(f"note: {len(gone)} downloaded link no longer in the media folder; "
+              f"fetching it again", file=sys.stderr, flush=True)
+    outstanding = pending(links, state, opts, gone)
+    fresh = {link_key(url) for url in opts.again or []} | gone
     tally = {DONE: 0, NO_MEDIA: 0, FAILED: 0, "auth": 0, "processed": 0, "left": 0}
     if not outstanding:
         if opts.dry_run:
@@ -843,7 +974,7 @@ def process(links: list[str], state: State, opts, tools: Tools) -> dict[str, int
                       file=sys.stderr, flush=True)
             return
         entry = state.get(url)
-        result = fetch(url, opts, tools)
+        result = fetch(url, opts, tools, fresh=link_key(url) in fresh)
         state.record(
             url,
             status=result.status,
@@ -925,7 +1056,8 @@ def total_size(files: list[str], root: Path) -> int:
 
 def show_status(links: list[str], state: State, opts) -> None:
     counts = state.counts()
-    todo = pending(links, state, opts)
+    gone = gone_links(links, state, opts)
+    todo = pending(links, state, opts, gone if opts.again_missing else None)
     settled = len(links) - len(todo)
     percent = (settled * 100 // len(links)) if links else 0
     print(f"links file : {opts.links}  ({len(links)} link)")
@@ -935,8 +1067,10 @@ def show_status(links: list[str], state: State, opts) -> None:
     print(f"no media   : {counts.get(NO_MEDIA, 0)}")
     print(f"failed     : {counts.get(FAILED, 0)}")
     print(f"pending    : {len(todo)}")
+    print(f"moved away : {len(gone)}  (downloaded, no longer in the media folder)")
+    print(f"history    : {state.path}")
     if opts.out.is_dir():
-        files = [p for p in opts.out.rglob("*") if p.is_file() and p.name != STATE_FILE]
+        files = [p for p in opts.out.rglob("*") if p.is_file() and not p.name.startswith(".")]
         size = sum(p.stat().st_size for p in files)
         print(f"on disk    : {len(files)} file, {human(size)}")
 
@@ -960,10 +1094,16 @@ setting up:
   x-download --setup                    install or upgrade yt-dlp + gallery-dl
   x-download --check                    which tools a download would use
 
+downloading again on purpose:
+  x-download --again URL                this link again, even though it was fetched
+  x-download --again-missing            every link whose files left the media folder
+
 Stopping is free. Every finished link is recorded before the next one starts,
 so Ctrl-C, --limit and --batch all resume from where they left off; a link is
-never downloaded twice. Links are deduplicated on the tweet id, so the same
-tweet under two different handles counts once.
+never downloaded twice. The record is kept beside the panel's settings, not in
+the media folder, so moving the media somewhere else does not make it forget.
+Links are deduplicated on the tweet id, so the same tweet under two different
+handles counts once.
 """
 
 
@@ -1016,6 +1156,17 @@ def build_parser() -> argparse.ArgumentParser:
     gated.add_argument("--retry-failed", action="store_true",
                        help="re-queue links previously recorded as failed or media-less")
 
+    again = p.add_argument_group("downloading again")
+    again.add_argument("--again", action="append", metavar="URL",
+                       help="download this link again even though it was fetched "
+                            "before; repeat for more")
+    again.add_argument("--again-missing", action="store_true",
+                       help="download again every link whose files are no longer "
+                            "in the media folder")
+    again.add_argument("--look-in", action="append", type=Path, default=[], metavar="DIR",
+                       help="another folder where downloaded files may now be "
+                            "(with --again-missing); repeat for more")
+
     pace.add_argument("--only", action="append", metavar="URL",
                       help="just this link from the links file; repeat for more")
 
@@ -1032,6 +1183,8 @@ def build_parser() -> argparse.ArgumentParser:
     tools.add_argument("--check", action="store_true",
                        help="show which tools a download would use, then exit")
     tools.add_argument("--json", action="store_true", help=argparse.SUPPRESS)
+    tools.add_argument("--history", type=Path, metavar="FILE",
+                       help=f"the download history (default: {history_path()})")
     tools.add_argument("--no-config", action="store_true",
                        help=f"ignore the panel's settings file ({config_path()})")
     tools.add_argument("--yt-dlp", dest="ytdlp_path", metavar="PATH",
@@ -1076,9 +1229,14 @@ def main(argv: list[str]) -> int:
         print("note: gallery-dl missing, image-only tweets will be skipped", file=sys.stderr)
 
     opts.out.mkdir(parents=True, exist_ok=True)
-    state = State(opts.out / STATE_FILE)
+    opts.look_in = [p.expanduser() for p in opts.look_in]
+    state = State((opts.history or history_path()).expanduser())
+    adopted = state.adopt(opts.out / STATE_FILE)
+    if adopted:
+        print(f"note: {adopted} link taken over from {opts.out / STATE_FILE} "
+              f"into {state.path}", file=sys.stderr)
     links, collapsed, skipped = read_links(opts.links)
-    links = only(links, opts.only)
+    links = again_too(only(links, opts.only or opts.again), opts.again)
     if collapsed:
         print(f"note: {collapsed} duplicate link collapsed (same tweet id)",
               file=sys.stderr)
@@ -1104,7 +1262,7 @@ def main(argv: list[str]) -> int:
         report(tally, opts)
         while opts.watch:
             time.sleep(opts.watch)
-            links = only(read_links(opts.links)[0], opts.only)
+            links = again_too(only(read_links(opts.links)[0], opts.only or opts.again), opts.again)
             tally = process(links, state, opts, tools)
             if any(tally[k] for k in (DONE, NO_MEDIA, FAILED)):
                 report(tally, opts)

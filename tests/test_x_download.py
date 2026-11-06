@@ -78,6 +78,8 @@ class PanelSettings(unittest.TestCase):
             "jobs": 4, "timeout": 120, "cookies": "vivaldi", "metadata": True, "mirror_only": True,
         })
         self.assertEqual(xd.config_defaults({"mirror": "fallback"}), {"mirror": True})
+        self.assertEqual(xd.config_defaults({"remember_downloads": False}), {"again_missing": True})
+        self.assertEqual(xd.config_defaults({"remember_downloads": True}), {})
 
     def test_ignores_what_it_cannot_use(self):
         self.assertEqual(xd.config_defaults({
@@ -159,7 +161,7 @@ class Pending(unittest.TestCase):
             state.record("https://x.com/a/status/3", status=xd.FAILED, attempts=1)
             state.record("https://x.com/a/status/4", status=xd.FAILED, attempts=xd.MAX_ATTEMPTS)
             links = [f"https://x.com/a/status/{n}" for n in range(1, 6)]
-            opts = SimpleNamespace(retry_failed=False)
+            opts = SimpleNamespace(retry_failed=False, again=None)
             self.assertEqual(xd.pending(links, state, opts), [links[2], links[4]])
             opts.retry_failed = True
             self.assertEqual(xd.pending(links, state, opts), links[1:])
@@ -173,6 +175,76 @@ class Pending(unittest.TestCase):
             again = xd.State(path)
             self.assertEqual(again.get("https://x.com/a/status/1")["files"], ["a/1-1.mp4"])
             self.assertEqual(again.counts(), {xd.DONE: 1})
+
+    def test_finds_a_tweet_under_another_handle(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = xd.State(Path(tmp) / xd.HISTORY_FILE)
+            state.record("https://x.com/alice/status/7", status=xd.DONE)
+            self.assertEqual(state.get("https://twitter.com/bob/status/7?s=20")["status"], xd.DONE)
+            state.record("https://x.com/bob/status/7", status=xd.FAILED)
+            self.assertEqual(list(state.entries), ["https://x.com/alice/status/7"])
+
+    def test_asked_for_again_comes_along_whatever_the_record_says(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = xd.State(Path(tmp) / xd.HISTORY_FILE)
+            links = [f"https://x.com/a/status/{n}" for n in (1, 2, 3)]
+            for url in links:
+                state.record(url, status=xd.DONE)
+            opts = SimpleNamespace(retry_failed=False, again=["https://x.com/zed/status/2"])
+            self.assertEqual(xd.pending(links, state, opts), [links[1]])
+            gone = {xd.link_key(links[2])}
+            self.assertEqual(xd.pending(links, state, opts, gone), links[1:])
+
+
+class History(unittest.TestCase):
+    """Moving the media folder away must not make the downloader forget."""
+
+    def test_the_old_state_in_the_media_folder_is_taken_over(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            media = Path(tmp) / "x-media"
+            media.mkdir()
+            (media / xd.STATE_FILE).write_text(json.dumps({"version": 1, "entries": {
+                "https://x.com/a/status/1": {"status": "done", "files": ["a/1-1.mp4"]},
+                "https://x.com/a/status/2": {"status": "failed", "attempts": 1},
+            }}), encoding="utf-8")
+            history = Path(tmp) / "config" / xd.HISTORY_FILE
+            state = xd.State(history)
+            state.record("https://x.com/b/status/2", status=xd.DONE)
+            self.assertEqual(state.adopt(media / xd.STATE_FILE), 1)
+            self.assertEqual(state.get("https://x.com/a/status/2")["status"], xd.DONE,
+                             "what the history knows wins")
+            # Saved where the history lives, so it outlives the media folder.
+            (media / xd.STATE_FILE).unlink()
+            media.rmdir()
+            again = xd.State(history)
+            self.assertEqual(again.get("https://x.com/a/status/1")["status"], xd.DONE)
+            self.assertEqual(again.adopt(media / xd.STATE_FILE), 0)
+
+    def test_files_are_found_by_tweet_id_wherever_they_are(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "alice").mkdir()
+            (root / "alice" / "100-1.mp4").write_bytes(b"")
+            (root / "x-media").mkdir()
+            (root / "x-media" / "bob-200-2~2.jpg").write_bytes(b"")
+            (root / "alice" / "300-1.mp4.part").write_bytes(b"")
+            (root / "notes-400.txt").write_bytes(b"")
+            self.assertEqual(xd.ids_on_disk([root, root / "missing"]), {"100", "200"})
+
+    def test_a_link_is_gone_once_its_files_are(self):
+        present = {"100"}
+        done = {"status": xd.DONE}
+        self.assertFalse(xd.is_gone("https://x.com/a/status/100", done, present))
+        self.assertTrue(xd.is_gone("https://x.com/a/status/101", done, present))
+        self.assertFalse(xd.is_gone("https://x.com/a/status/101", {"status": xd.FAILED}, present))
+        self.assertFalse(xd.is_gone("https://example.com/clip", done, present))
+
+    def test_again_takes_links_the_file_no_longer_has(self):
+        links = ["https://x.com/a/status/1"]
+        self.assertEqual(
+            xd.again_too(links, ["https://x.com/b/status/1", " https://x.com/a/status/9 "]),
+            ["https://x.com/a/status/1", "https://x.com/a/status/9"],
+        )
 
 
 if __name__ == "__main__":

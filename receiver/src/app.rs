@@ -8,7 +8,7 @@
 //! the links file, the media folder, where the tools live -- is worked out
 //! when it is needed, not once at startup.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::ffi::OsString;
 use std::fmt;
@@ -36,7 +36,12 @@ const AUTO_DELAY: Duration = Duration::from_secs(20);
 const MEDIA_TTL: Duration = Duration::from_secs(15);
 const TOOLS_TTL: Duration = Duration::from_secs(300);
 
-/// x-download's record of what it fetched, inside the media folder.
+/// x-download's record of what it fetched, beside the settings: the media
+/// folder is what people move, empty and sync away, and the record of what
+/// was downloaded must not leave with it.
+const HISTORY_FILE: &str = "download-history.json";
+/// Where x-download 1.1 and earlier kept that record, inside the media
+/// folder. Still read, under whatever the history says.
 const STATE_FILE: &str = ".x-download-state.json";
 /// x-download's MAX_ATTEMPTS: a link that failed fewer times than this is
 /// tried again by a plain run, without --retry-failed.
@@ -64,7 +69,7 @@ pub struct App {
     history_warned: AtomicBool,
     auto_due: Mutex<Option<Instant>>,
     downloads: Mutex<DownloadCache>,
-    media: Mutex<Option<(Instant, u64, PathBuf, MediaStats)>>,
+    media: Mutex<Option<MediaCache>>,
     tools: Mutex<Option<(Instant, u64, Json)>>,
 }
 
@@ -75,11 +80,27 @@ pub struct Download {
     pub attempts: f64,
 }
 
+type Stamp = Option<(SystemTime, u64)>;
+
 #[derive(Default)]
 struct DownloadCache {
-    path: PathBuf,
-    stamp: Option<(SystemTime, u64)>,
+    paths: (PathBuf, PathBuf),
+    stamp: (Stamp, Stamp),
     entries: Arc<HashMap<String, Download>>,
+}
+
+/// The media folder, counted, and the tweet ids it holds files for.
+#[derive(Clone, Default)]
+struct Media {
+    stats: MediaStats,
+    ids: Arc<HashSet<String>>,
+}
+
+struct MediaCache {
+    at: Instant,
+    generation: u64,
+    roots: Vec<PathBuf>,
+    media: Media,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -349,6 +370,8 @@ impl App {
             resolve_links_file(&self.cfg, &run).into(),
             "--out".into(),
             resolve_media_dir(&run).into(),
+            "--history".into(),
+            self.history_file().into(),
             "--jobs".into(),
             run.jobs.to_string().into(),
             "--timeout".into(),
@@ -368,6 +391,24 @@ impl App {
         }
         if flag(req, "retry_failed") {
             args.push("--retry-failed".into());
+        }
+        // Files that have left the media folder are fetched again only when
+        // asked for, or when the settings say not to remember downloads.
+        if flag(req, "again_missing") || !run.remember_downloads {
+            args.push("--again-missing".into());
+            for extra in self.media_roots().into_iter().skip(1) {
+                args.push("--look-in".into());
+                args.push(extra.into());
+            }
+        }
+        // The Download again box, and a downloaded row's own button.
+        if let Some(Json::Arr(items)) = req.get("again") {
+            for link in items.iter().take(500).filter_map(Json::as_str) {
+                if let Some(link) = url::sanitize(link) {
+                    args.push("--again".into());
+                    args.push(link.into());
+                }
+            }
         }
         if flag(req, "dry_run") {
             args.push("--dry-run".into());
@@ -538,6 +579,7 @@ impl App {
                     ("flatten_dest", path_text(&flatten_dest(&s, &media)).into()),
                     ("port", self.port.into()),
                     ("fsync", (!self.cfg.no_fsync && s.fsync).into()),
+                    ("history_file", path_text(&self.history_file()).into()),
                 ]),
             ),
             (
@@ -603,7 +645,10 @@ impl App {
     pub fn status(&self, offset: i64, strip: bool) -> Json {
         let links = self.store().links().unwrap_or_default();
         let downloads = self.downloads();
+        let media = self.media();
         let (mut done, mut no_media, mut failed) = (0usize, 0usize, 0usize);
+        // Downloaded, but the files are no longer anywhere the panel looks.
+        let mut gone = 0usize;
         // What a plain run would take on: the new links, and the failed ones
         // it has not given up on yet.
         let mut retrying = 0usize;
@@ -613,6 +658,9 @@ impl App {
             let code = match download.map(|d| d.status.as_str()) {
                 Some("done") => {
                     done += 1;
+                    if is_gone(link, &media.ids) {
+                        gone += 1;
+                    }
                     'd'
                 }
                 Some("no-media") => {
@@ -634,7 +682,6 @@ impl App {
         }
         let pending = links.len() - done - no_media - failed;
         let daily = self.history().daily(14, offset);
-        let media = self.media();
         let seen = self.extension_seen.load(Ordering::Relaxed);
         let s = self.settings().clone();
         let job = self.jobs.snapshot(u64::MAX).get("job").cloned();
@@ -663,16 +710,22 @@ impl App {
                     ("no_media", no_media.into()),
                     ("failed", failed.into()),
                     ("pending", pending.into()),
-                    ("queued", (pending + retrying).into()),
+                    // Not remembering: a plain run fetches the moved-away ones too.
+                    (
+                        "queued",
+                        (pending + retrying + if s.remember_downloads { 0 } else { gone }).into(),
+                    ),
+                    ("gone", gone.into()),
+                    ("remember", s.remember_downloads.into()),
                 ]),
             ),
             (
                 "media",
                 json::obj([
-                    ("files", media.files.into()),
-                    ("bytes", media.bytes.into()),
-                    ("videos", media.videos.into()),
-                    ("images", media.images.into()),
+                    ("files", media.stats.files.into()),
+                    ("bytes", media.stats.bytes.into()),
+                    ("videos", media.stats.videos.into()),
+                    ("images", media.stats.images.into()),
                     ("flattened", self.flattened(&s).into()),
                 ]),
             ),
@@ -688,6 +741,7 @@ impl App {
     pub fn links_page(&self, query: &str, status: &str, offset: usize, limit: usize) -> Json {
         let links = self.store().links().unwrap_or_default();
         let downloads = self.downloads();
+        let media = self.media();
         let history = self.history();
         let query = query.trim().to_lowercase();
         let mut matched = 0usize;
@@ -703,7 +757,13 @@ impl App {
             if !query.is_empty() && !link.to_lowercase().contains(&query) {
                 continue;
             }
-            if !status.is_empty() && status != "all" && status != state {
+            let gone = state == "done" && is_gone(link, &media.ids);
+            let wanted = match status {
+                "" | "all" => true,
+                "gone" => gone,
+                _ => status == state,
+            };
+            if !wanted {
                 continue;
             }
             matched += 1;
@@ -722,6 +782,7 @@ impl App {
                 ("handle", tweet.and_then(|t| t.handle).into()),
                 ("captured", history.captured(link).into()),
                 ("status", state.into()),
+                ("gone", gone.into()),
                 ("files", files.into()),
                 ("error", download.map_or("", |d| d.error.as_str()).into()),
             ]));
@@ -743,34 +804,65 @@ impl App {
         Ok(removed)
     }
 
-    /// x-download's state file, keyed the way the store dedupes. It is read
-    /// again only when it has changed.
+    /// The download history, plus any state file an older x-download left in
+    /// the media folder, keyed the way the store dedupes. Read again only when
+    /// one of them has changed.
     fn downloads(&self) -> Arc<HashMap<String, Download>> {
-        let path = self.media_dir().join(STATE_FILE);
-        let stamp = fs::metadata(&path)
-            .ok()
-            .map(|m| (m.modified().unwrap_or(SystemTime::UNIX_EPOCH), m.len()));
+        let paths = (self.history_file(), self.media_dir().join(STATE_FILE));
+        let stamp = (file_stamp(&paths.0), file_stamp(&paths.1));
         let mut cache = lock(&self.downloads);
-        if cache.path != path || cache.stamp != stamp {
-            cache.entries = Arc::new(read_downloads(&path));
-            cache.path = path;
+        if cache.paths != paths || cache.stamp != stamp {
+            let mut entries = read_downloads(&paths.1);
+            entries.extend(read_downloads(&paths.0)); // the history wins
+            cache.entries = Arc::new(entries);
+            cache.paths = paths;
             cache.stamp = stamp;
         }
         Arc::clone(&cache.entries)
     }
 
-    fn media(&self) -> MediaStats {
-        let dir = self.media_dir();
+    pub fn history_file(&self) -> PathBuf {
+        data_dir(&self.cfg).join(HISTORY_FILE)
+    }
+
+    /// Where downloaded files may be: the media folder, and the flatten
+    /// destination when that is somewhere else.
+    fn media_roots(&self) -> Vec<PathBuf> {
+        let s = self.settings().clone();
+        let media = resolve_media_dir(&s);
+        let flat = flatten_dest(&s, &media);
+        let mut roots = vec![media];
+        if !flat.starts_with(&roots[0]) {
+            roots.push(flat);
+        }
+        roots
+    }
+
+    fn media(&self) -> Media {
+        let roots = self.media_roots();
         let generation = self.jobs.generation();
         let mut cache = lock(&self.media);
-        if let Some((at, seen, cached_dir, stats)) = cache.as_ref() {
-            if at.elapsed() < MEDIA_TTL && *seen == generation && *cached_dir == dir {
-                return *stats;
+        if let Some(c) = cache.as_ref() {
+            if c.at.elapsed() < MEDIA_TTL && c.generation == generation && c.roots == roots {
+                return c.media.clone();
             }
         }
-        let stats = scan_media(&dir);
-        *cache = Some((Instant::now(), generation, dir, stats));
-        stats
+        let mut ids = HashSet::new();
+        let stats = scan_media(&roots[0], &mut ids);
+        for extra in &roots[1..] {
+            scan_media(extra, &mut ids);
+        }
+        let media = Media {
+            stats,
+            ids: Arc::new(ids),
+        };
+        *cache = Some(MediaCache {
+            at: Instant::now(),
+            generation,
+            roots,
+            media: media.clone(),
+        });
+        media
     }
 
     /// Whether x-flatten left a manifest that `--undo` can walk back.
@@ -888,6 +980,42 @@ fn search_path() -> Vec<PathBuf> {
     dirs
 }
 
+fn file_stamp(path: &Path) -> Stamp {
+    fs::metadata(path)
+        .ok()
+        .map(|m| (m.modified().unwrap_or(SystemTime::UNIX_EPOCH), m.len()))
+}
+
+/// A downloaded tweet none of whose files are in the folders looked in. A
+/// link that is not a tweet cannot be looked for, so it never counts.
+fn is_gone(link: &str, ids: &HashSet<String>) -> bool {
+    url::tweet_ref(link).map_or(false, |t| !ids.contains(&t.id))
+}
+
+/// The tweet id in a media file's name, as x-download and x-flatten write
+/// them: `<id>-<n>.<ext>`, `<handle>-<id>-<n>.<ext>`, `<id>-<n>~2.<ext>`.
+fn media_tweet_id(name: &str) -> Option<&str> {
+    let (stem, ext) = name.rsplit_once('.')?;
+    if !(1..=5).contains(&ext.len()) || !ext.bytes().all(|b| b.is_ascii_alphanumeric()) {
+        return None;
+    }
+    let all_digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    let stem = match stem.rsplit_once('~') {
+        Some((before, n)) if all_digits(n) => before,
+        _ => stem,
+    };
+    let (head, n) = stem.rsplit_once('-')?;
+    if !all_digits(n) || n.len() > 4 {
+        return None;
+    }
+    let start = head
+        .bytes()
+        .rposition(|b| !b.is_ascii_digit())
+        .map_or(0, |i| i + 1);
+    let id = &head[start..];
+    (all_digits(id) && id.len() <= 25).then_some(id)
+}
+
 fn read_downloads(path: &Path) -> HashMap<String, Download> {
     let Ok(text) = fs::read_to_string(path) else {
         return HashMap::new();
@@ -927,9 +1055,10 @@ fn read_downloads(path: &Path) -> HashMap<String, Download> {
         .collect()
 }
 
-/// Count what is in the media folder. Hidden files -- the state file, the
-/// flatten manifest -- and half-finished downloads are not media.
-fn scan_media(root: &Path) -> MediaStats {
+/// Count what is in the media folder, and note the tweet id of every file.
+/// Hidden files -- the state file, the flatten manifest -- and half-finished
+/// downloads are not media.
+fn scan_media(root: &Path, ids: &mut HashSet<String>) -> MediaStats {
     let mut stats = MediaStats::default();
     let mut pending = vec![(root.to_path_buf(), 0usize)];
     while let Some((dir, depth)) = pending.pop() {
@@ -948,6 +1077,9 @@ fn scan_media(root: &Path) -> MediaStats {
             if kind.is_dir() && depth < 4 {
                 pending.push((entry.path(), depth + 1));
             } else if kind.is_file() {
+                if let Some(id) = media_tweet_id(&name) {
+                    ids.insert(id.to_string());
+                }
                 stats.files += 1;
                 stats.bytes += entry.metadata().map_or(0, |m| m.len());
                 let ext = Path::new(&*name)
@@ -1039,11 +1171,58 @@ mod tests {
         fs::write(dir.join("alice/2-1.jpg"), b"01234").unwrap();
         fs::write(dir.join("alice/3-1.mp4.part"), b"partial").unwrap();
         fs::write(dir.join(STATE_FILE), b"{}").unwrap();
-        let stats = scan_media(&dir);
+        let mut ids = HashSet::new();
+        let stats = scan_media(&dir, &mut ids);
         assert_eq!(
             (stats.files, stats.bytes, stats.videos, stats.images),
             (2, 15, 1, 1)
         );
+        let mut found: Vec<_> = ids.into_iter().collect();
+        found.sort();
+        assert_eq!(found, ["1", "2"]);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn finds_the_tweet_id_in_every_name_the_tools_write() {
+        assert_eq!(
+            media_tweet_id("1900000000000000101-1.mp4"),
+            Some("1900000000000000101")
+        );
+        assert_eq!(media_tweet_id("night_ferry-303-2.jpg"), Some("303"));
+        assert_eq!(media_tweet_id("user12-303-1~2.mp4"), Some("303"));
+        assert_eq!(media_tweet_id("303-1.info.json"), None);
+        assert_eq!(media_tweet_id("notes.txt"), None);
+        assert_eq!(media_tweet_id("clip-1.mp4"), None);
+        assert_eq!(media_tweet_id("303-12345.mp4"), None);
+    }
+
+    #[test]
+    fn the_history_outranks_the_old_state_in_the_media_folder() {
+        let dir = temp_dir("merge");
+        fs::create_dir_all(&dir).unwrap();
+        let legacy = dir.join(STATE_FILE);
+        let history = dir.join(HISTORY_FILE);
+        fs::write(
+            &legacy,
+            r#"{"entries": {"https://x.com/a/status/1": {"status": "failed"},
+                            "https://x.com/a/status/2": {"status": "done"}}}"#,
+        )
+        .unwrap();
+        fs::write(
+            &history,
+            r#"{"entries": {"https://x.com/a/status/1": {"status": "done"}}}"#,
+        )
+        .unwrap();
+        let mut entries = read_downloads(&legacy);
+        entries.extend(read_downloads(&history));
+        let status = |id: &str| entries[&format!("tweet:{id}")].status.clone();
+        assert_eq!((status("1"), status("2")), ("done".into(), "done".into()));
+
+        let ids: HashSet<String> = ["2".to_string()].into();
+        assert!(is_gone("https://x.com/a/status/1", &ids));
+        assert!(!is_gone("https://x.com/b/status/2", &ids));
+        assert!(!is_gone("https://example.com/clip", &ids));
         fs::remove_dir_all(&dir).unwrap();
     }
 }

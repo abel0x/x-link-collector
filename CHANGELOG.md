@@ -1,5 +1,30 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- **Moving the media folder no longer makes the downloader forget.** The
+  record of what was downloaded used to live inside the media folder, so
+  moving `x-media` somewhere else (to cloud storage, say) took it along, and
+  the next run downloaded every link again. It now lives next to the settings
+  file as `download-history.json`. The old `.x-download-state.json` is still
+  read and taken over by the first run; nothing has to be done by hand.
+- A tweet is found in the record by its id, so the same tweet under another
+  handle is not downloaded twice.
+
+### Added
+
+- **A setting for it:** *Remember downloads after their files are moved*, on
+  by default. Turned off, a link whose files are no longer in the media
+  folder is downloaded again by the next run.
+- **Download again**, a section of its own on the Download page. It counts the
+  downloaded links whose files have left the media folder, downloads them all
+  again with one button, or downloads any links pasted into it. The Links page
+  gains a *Moved away* filter, and a *Download again* button on those rows.
+- `x-download --again URL`, `--again-missing`, `--look-in DIR` and
+  `--history FILE`. `--status` shows how many links have moved away.
+
 ## [1.1.1] - 2026-10-10
 
 ### Added
