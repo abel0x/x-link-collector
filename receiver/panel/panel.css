@@ -400,6 +400,14 @@ select.input { padding-right: 32px; }
 .link-row .dates { display: grid; color: var(--ink-2); font-size: 13px; }
 .link-row .actions { display: flex; justify-content: flex-end; gap: 4px; }
 .link-row .why { grid-column: 3 / -1; color: var(--danger-text); font-size: 13.5px; }
+.link-row .status { display: grid; gap: 2px; justify-items: start; }
+.link-row .moved { color: var(--ink-3); font-size: 12.5px; }
+
+.again-gone {
+  margin-bottom: 18px; padding: 18px 22px;
+  border-radius: var(--r-block); background: var(--surface);
+}
+.again-gone .row-buttons { margin-top: 12px; }
 
 .thumb {
   position: relative; display: grid; place-items: center; width: 56px; height: 56px;

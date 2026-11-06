@@ -23,8 +23,9 @@ x-media/                          x-media/
     └── 1900000000000000304-1.jpg
 ```
 
-The per-handle folders are removed once empty. `.x-download-state.json` stays
-where it is, so the downloader still knows what it has fetched.
+The per-handle folders are removed once empty. The downloader keeps its record
+of what it has fetched next to the settings file, and finds flattened files by
+the tweet id in their names, so nothing is downloaded twice.
 
 ## It is reversible
 

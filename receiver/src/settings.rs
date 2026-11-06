@@ -40,6 +40,9 @@ pub struct Settings {
     pub timeout: u32,
     /// Start a download by itself shortly after new links arrive.
     pub auto_download: bool,
+    /// Never fetch a downloaded link again, even once its files have left the
+    /// media folder. Off: a link whose files are gone is downloaded again.
+    pub remember_downloads: bool,
     /// Empty means `<media dir>/x-media`, x-flatten's own default.
     pub flatten_dest: String,
     pub flatten_prefix_handle: bool,
@@ -65,6 +68,7 @@ impl Default for Settings {
             metadata: false,
             timeout: 900,
             auto_download: false,
+            remember_downloads: true,
             flatten_dest: String::new(),
             flatten_prefix_handle: false,
             flatten_videos_only: false,
@@ -139,6 +143,7 @@ impl Settings {
             "metadata" => self.metadata = boolean(key, v)?,
             "timeout" => self.timeout = number(key, v, 30, 86_400)?,
             "auto_download" => self.auto_download = boolean(key, v)?,
+            "remember_downloads" => self.remember_downloads = boolean(key, v)?,
             "flatten_dest" => self.flatten_dest = text(key, v)?,
             "flatten_prefix_handle" => self.flatten_prefix_handle = boolean(key, v)?,
             "flatten_videos_only" => self.flatten_videos_only = boolean(key, v)?,
@@ -162,6 +167,7 @@ impl Settings {
             ("metadata", self.metadata.into()),
             ("timeout", self.timeout.into()),
             ("auto_download", self.auto_download.into()),
+            ("remember_downloads", self.remember_downloads.into()),
             ("flatten_dest", self.flatten_dest.as_str().into()),
             ("flatten_prefix_handle", self.flatten_prefix_handle.into()),
             ("flatten_videos_only", self.flatten_videos_only.into()),
@@ -176,7 +182,7 @@ impl Settings {
     }
 }
 
-pub const KEYS: [&str; 16] = [
+pub const KEYS: [&str; 17] = [
     "links_file",
     "media_dir",
     "port",
@@ -187,6 +193,7 @@ pub const KEYS: [&str; 16] = [
     "metadata",
     "timeout",
     "auto_download",
+    "remember_downloads",
     "flatten_dest",
     "flatten_prefix_handle",
     "flatten_videos_only",

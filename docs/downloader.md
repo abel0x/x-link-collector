@@ -147,7 +147,8 @@ produced is clean; this matters for hand-edited or imported lists.
 
 ## State and retries
 
-`<media dir>/.x-download-state.json` records one entry per link:
+`download-history.json`, next to the panel's settings file, records one entry
+per link:
 
 | status | meaning | retried? |
 |---|---|---|
@@ -155,8 +156,31 @@ produced is clean; this matters for hand-edited or imported lists.
 | `no-media` | text-only tweet, nothing to fetch | only with `--retry-failed` |
 | `failed` | error, with a readable reason | up to 3 attempts, then `--retry-failed` |
 
-Delete the state file to rebuild from scratch; already-downloaded files are
-skipped by yt-dlp anyway.
+It is kept there, and not in the media folder, because the media folder is
+the thing that gets moved: to a bigger disk, to cloud storage, out of the way.
+A link downloaded once stays downloaded however far its files travel. (1.1 and
+earlier kept the record in `<media dir>/.x-download-state.json`; the first run
+of a newer version takes it over, and leaves the old file where it is.)
+
+Delete the history to rebuild from scratch; files still in the media folder
+are skipped by yt-dlp anyway.
+
+## Downloading again
+
+To fetch something again on purpose:
+
+```sh
+./x-download --again https://x.com/alice/status/1900000000000000101
+./x-download --again-missing        # every link whose files left the media folder
+./x-download --again-missing --look-in ~/Cloud/x-media --dry-run
+```
+
+A link counts as *moved away* when no file named after its tweet id is left in
+the media folder, the flatten folder, or any `--look-in` folder; x-flatten's
+renamed files still count. The panel's Download page has the same in a
+**Download again** section, and the setting *Remember downloads after their
+files are moved* turned off makes every run behave as if `--again-missing`
+were given.
 
 `no-media` is terminal, so it must never be reached by guesswork. X reports an
 age-gated tweet with the same "no video could be found" line as a genuinely
@@ -183,6 +207,10 @@ altogether. Without the file, everything is as described here.
 --mirror-only       skip X's routes entirely and use the mirrors directly
 --watch [SECONDS]   keep running, re-checking the links file (default: 30s)
 --retry-failed      re-queue failed and media-less links
+--again URL         download this link again even if it was; repeat for more
+--again-missing     download again every link whose files left the media folder
+--look-in DIR       another folder to look for downloaded files in
+--history FILE      the download history (default: next to the settings file)
 --metadata          also write the tweet's metadata JSON
 --limit N           stop after N links this run; the rest stay queued
 --batch N           work the queue in groups of N, reporting after each

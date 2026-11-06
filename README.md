@@ -100,7 +100,7 @@ there is nothing else to install, and it loads nothing from anywhere else.
 |---|---|
 | **Overview** | One square per link, oldest first, coloured by what the downloader made of it, and the one button worth pressing next. |
 | **Links** | Every link with a thumbnail of what was downloaded; click it to see the photo or play the video. Search, filter by state, see why a download failed, fetch or retry a single link, paste a list in, take a link out. |
-| **Download** | Start, follow and stop a download, with the choices `x-download` has: mirrors, your own login, parallel downloads, a limit, a dry run. Or let new links download by themselves. |
+| **Download** | Start, follow and stop a download, with the choices `x-download` has: mirrors, your own login, parallel downloads, a limit, a dry run. Or let new links download by themselves. Download again, on purpose, what you already have. |
 | **Folder** | What is on disk, and the one-folder [flatten](docs/flatten.md) — with undo. |
 | **Settings** | Where links and media go, and the rest. Also installs or updates yt-dlp and gallery-dl, and says so when they have grown old enough to break. |
 
@@ -119,7 +119,8 @@ make download-status     # what has been collected so far
 ```
 
 Media lands in `<desktop>/x-media/<handle>/<tweet id>-1.mp4`. Every link is
-fetched exactly once, and stopping is free — the panel's Stop, Ctrl-C, `--limit`,
+fetched exactly once, even after you move the files somewhere else, and
+stopping is free — the panel's Stop, Ctrl-C, `--limit`,
 `--batch` all resume where they left off. See **[docs/downloader.md](docs/downloader.md)**.
 
 ## What is in here
