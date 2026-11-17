@@ -44,6 +44,10 @@ jobs:
       - name: smoke test
         shell: bash
         run: python tests/smoke.py "receiver/target/release/x-link-receiver${{ runner.os == 'Windows' && '.exe' || '' }}"
+      # Ubuntu runners come with Chrome: every page, in both languages.
+      - name: panel in a browser
+        if: runner.os == 'Linux'
+        run: python tests/panel_dom.py receiver/target/release/x-link-receiver
       - name: rustfmt
         if: matrix.os == 'ubuntu-latest'
         run: cargo fmt --manifest-path receiver/Cargo.toml --check

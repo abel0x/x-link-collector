@@ -19,7 +19,7 @@ PANEL    := http://127.0.0.1:9876/
 OPEN     := $(if $(filter Darwin,$(UNAME)),open,xdg-open)
 
 .DEFAULT_GOAL := help
-.PHONY: help build ci test test-rs test-ext test-py smoke run panel install uninstall \
+.PHONY: help build ci test test-rs test-ext test-py smoke panel-test screenshots run panel install uninstall \
 	    service service-stop service-uninstall status logs package clean \
 	    downloader-setup downloader-update download download-watch download-all \
 	    download-status flatten flatten-undo
@@ -59,6 +59,12 @@ test-py: ## run the downloader's and the flattener's tests
 
 smoke: build ## start the built receiver and use it end to end
 	$(PYTHON) tests/smoke.py $(BIN)
+
+panel-test: build ## every panel page, English and Turkish, in headless Chrome
+	$(PYTHON) tests/panel_dom.py $(BIN)
+
+screenshots: build ## take docs/panel.png and docs/panel-dark.png again
+	$(PYTHON) tests/screenshots.py $(BIN)
 
 run: build ## run the receiver in the foreground (Ctrl-C to stop)
 	$(BIN)

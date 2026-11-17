@@ -4,6 +4,10 @@
 
 ### Added
 
+- `make panel-test` opens every page of the panel in English and Turkish in a
+  headless Chrome and fails on an untranslated key, a page in the wrong
+  language or an empty heading; CI runs it. `make screenshots` takes the
+  README's pictures again from a made-up collection.
 - **A video posted again is kept once.** When a download comes out byte for
   byte the same as a file already in the media folder, it becomes a hard link
   to it: both names stay where they are and the disk holds the file once. The
