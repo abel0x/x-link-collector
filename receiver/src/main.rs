@@ -269,10 +269,11 @@ fn handle_connection(mut stream: TcpStream, app: &App) {
     }
     // A capture carries the extension's Origin. Its plain GETs may not, so
     // the extension also says who it is; it only decides a setup hint.
+    let hello = req.header("x-link-collector");
     if origin.as_deref().map_or(false, http::is_extension)
-        || req.header("x-link-collector") == Some("extension")
+        || hello.map_or(false, |h| h.starts_with("extension"))
     {
-        app.extension_contact();
+        app.extension_contact(hello.and_then(http::extension_version));
     }
 
     let res = route(&req, app);

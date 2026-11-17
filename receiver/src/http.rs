@@ -194,6 +194,19 @@ pub fn is_extension(origin: &str) -> bool {
     origin.starts_with("moz-extension://") || origin.starts_with("safari-web-extension://")
 }
 
+/// The version in the extension's hello, `X-Link-Collector: extension/1.4.2`.
+/// A bare `extension`, from before 1.4.2, gives "0": older than any release.
+pub fn extension_version(hello: &str) -> Option<&str> {
+    match hello.strip_prefix("extension") {
+        Some("") => Some("0"),
+        Some(rest) => rest
+            .strip_prefix('/')
+            .filter(|v| !v.is_empty() && v.len() <= 20)
+            .filter(|v| v.bytes().all(|b| b.is_ascii_digit() || b == b'.')),
+        None => None,
+    }
+}
+
 fn extra_ids() -> Vec<String> {
     std::env::var("X_LINK_EXTENSION_IDS")
         .unwrap_or_default()
@@ -454,6 +467,15 @@ mod tests {
             cors_for(Some("http://127.0.0.1:9876.evil.tld"), 9876),
             Cors::Deny
         ));
+    }
+
+    #[test]
+    fn the_extension_says_its_version() {
+        assert_eq!(extension_version("extension/1.4.2"), Some("1.4.2"));
+        assert_eq!(extension_version("extension"), Some("0"));
+        assert_eq!(extension_version("extension/"), None);
+        assert_eq!(extension_version("extension/1.4.2; rm -rf"), None);
+        assert_eq!(extension_version("panel"), None);
     }
 
     #[test]

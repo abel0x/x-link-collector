@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Added
+
+- **The panel says when the browser extension is older than the receiver**,
+  and how to bring it up to date: the reload arrow in Chromium (or just a
+  browser restart after a package update), the release's `.xpi` in Firefox.
+  The extension now gives its version when it says hello, at install, at
+  every browser start and when its icon is clicked; one from before this
+  release says nothing and counts as older.
+
 ### Removed
 
 - The Chrome Web Store package (`make store-zip`, its release asset and

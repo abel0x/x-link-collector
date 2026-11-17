@@ -233,14 +233,17 @@ async function send(url) {
   }
 }
 
-/** Whether the receiver answers. The header tells it an extension is installed. */
+/**
+ * Whether the receiver answers. The header tells it an extension is
+ * installed, and which version, so the panel can say when this one is older.
+ */
 async function healthy() {
   await ready;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
     const response = await fetch(receiverUrl('health'), {
-      headers: { 'X-Link-Collector': 'extension' },
+      headers: { 'X-Link-Collector': `extension/${chrome.runtime.getManifest().version}` },
       cache: 'no-store',
       signal: controller.signal,
     });
@@ -373,9 +376,15 @@ chrome.contextMenus.onClicked.addListener((info) => {
 });
 
 // Menus are set up once per install or update. The hello lets a running panel
-// stop showing how to load the extension.
+// stop showing how to load the extension, and know which version it has.
 chrome.runtime.onInstalled.addListener(() => {
   createMenus();
+  healthy();
+});
+
+// And at every browser start: an unpacked copy is read from disk again then,
+// so after a package update this is when the receiver learns the new version.
+chrome.runtime.onStartup.addListener(() => {
   healthy();
 });
 

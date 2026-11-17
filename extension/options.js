@@ -85,7 +85,7 @@ async function check() {
   const timer = setTimeout(() => controller.abort(), 2500);
   try {
     const response = await fetch(`http://127.0.0.1:${port}/health`, {
-      headers: { 'X-Link-Collector': 'extension' },
+      headers: { 'X-Link-Collector': `extension/${chrome.runtime.getManifest().version}` },
       cache: 'no-store',
       signal: controller.signal,
     });

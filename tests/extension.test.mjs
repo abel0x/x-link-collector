@@ -96,6 +96,8 @@ function loadWorker({ respond = () => ({ ok: true, status: 200 }), tabs = {}, st
           opened.options += 1;
         },
         onInstalled: { addListener: (fn) => (on.installed = fn) },
+        onStartup: { addListener: (fn) => (on.startup = fn) },
+        getManifest: () => ({ version: '9.8.7' }),
       },
       action: {
         setBadgeText: async () => {},
@@ -282,7 +284,7 @@ test('the toolbar icon opens the panel, or brings an open one forward', async ()
   await first.on.clicked();
   await settle();
   assert.equal(first.posted[0].url, 'http://127.0.0.1:9876/health');
-  assert.equal(first.posted[0].headers['X-Link-Collector'], 'extension');
+  assert.equal(first.posted[0].headers['X-Link-Collector'], 'extension/9.8.7');
   assert.deepEqual(first.created, ['http://127.0.0.1:9876/']);
 
   const again = loadWorker({ tabs: { 5: { id: 5, windowId: 2, url: 'http://127.0.0.1:9876/#settings' } } });
@@ -325,4 +327,13 @@ test("the manifest's key gives the extension id the receiver lets in", async () 
   const id = [...hex].map((d) => String.fromCharCode(97 + parseInt(d, 16))).join('');
   const http = readFileSync(join(here, '..', 'receiver', 'src', 'http.rs'), 'utf8');
   assert.ok(http.includes(`CHROMIUM_IDS: [&str; 1] = ["${id}"]`), `receiver pins ${id}`);
+});
+
+test('the browser starting says hello, with the version', async () => {
+  const worker = loadWorker();
+  await worker.on.startup();
+  await settle();
+  assert.equal(worker.posted.length, 1);
+  assert.equal(worker.posted[0].url, 'http://127.0.0.1:9876/health');
+  assert.equal(worker.posted[0].headers['X-Link-Collector'], 'extension/9.8.7');
 });

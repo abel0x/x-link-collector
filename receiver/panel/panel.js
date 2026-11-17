@@ -877,6 +877,17 @@ function extensionFolder() {
   return `${dir.replace(/[\\/]+$/, '')}${sep}extension`;
 }
 
+/** Whether version `a` comes before `b`, number by number: 1.4.10 is after 1.4.9. */
+function olderVersion(a, b) {
+  const x = String(a).split('.').map(Number);
+  const y = String(b).split('.').map(Number);
+  for (let i = 0; i < Math.max(x.length, y.length); i += 1) {
+    const d = (x[i] || 0) - (y[i] || 0);
+    if (d) return d < 0;
+  }
+  return false;
+}
+
 function renderSetup() {
   const s = state.status;
   const tools = state.tools;
@@ -906,6 +917,13 @@ function renderSetup() {
   }
   // Only an update left to do is upkeep, not setup; the heading says which.
   const setupItems = items.length;
+  const ext = s.extension_version;
+  if (s.extension_seen && ext && olderVersion(ext, s.version)) {
+    items.push(h('li', {},
+      h('strong', { text: t('setup.extOld') }),
+      h('p', { text: ext === '0' ? t('setup.extOldEarlier', { app: s.version }) : t('setup.extOldHow', { ext, app: s.version }) }),
+      h('p', { text: t('setup.extOldReload', { app: s.version }) })));
+  }
   const age = toolAge(tools?.yt_dlp);
   if (tools?.yt_dlp && (state.suggestUpdate || age > STALE_DAYS)) {
     items.push(h('li', {},
@@ -919,7 +937,7 @@ function renderSetup() {
         onclick: installTools,
       }))));
   }
-  const sig = `${lang}|${!s.extension_seen}|${extensionFolder()}|${tools?.python}|${tools?.yt_dlp}|${tools?.gallery_dl}|${isActive(s.job)}|${state.suggestUpdate}|${age}`;
+  const sig = `${lang}|${!s.extension_seen}|${ext}|${extensionFolder()}|${tools?.python}|${tools?.yt_dlp}|${tools?.gallery_dl}|${isActive(s.job)}|${state.suggestUpdate}|${age}`;
   if (sig === state.setupSig) return;
   state.setupSig = sig;
   $('#setup').hidden = items.length === 0;

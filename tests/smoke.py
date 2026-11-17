@@ -131,6 +131,12 @@ def run(binary: Path, work: Path) -> None:
         check(status == 403, "nor read the panel's API")
         status, _, _ = r.get("/health", {"Origin": OURS})
         check(status == 200, "the extension still sees whether the receiver is up")
+        r.get("/health", {"X-Link-Collector": "extension/1.0.0"})
+        check(r.api("/api/status")[1].get("extension_version") == "1.0.0",
+              "the extension's hello gives its version")
+        r.get("/health", {"X-Link-Collector": "extension"})
+        check(r.api("/api/status")[1].get("extension_version") == "0",
+              "one from before 1.4.2 counts as older")
 
         page = r.get("/", {"Accept": "text/html"})[2].decode()
         key = page.split('<meta name="panel-key" content="', 1)[1].split('"', 1)[0]

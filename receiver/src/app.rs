@@ -49,6 +49,8 @@ const MAX_ATTEMPTS: f64 = 3.0;
 /// When a browser extension last talked to a receiver, next to the settings:
 /// once it has, the panel stops showing how to install it.
 const EXTENSION_SEEN: &str = "extension-seen";
+/// The version the extension last gave, next to the settings.
+const EXTENSION_VERSION: &str = "extension-version";
 /// The panel's key, next to the settings: see `panel_key`.
 const PANEL_KEY: &str = "panel-key";
 const MANIFEST: &str = ".x-flatten-manifest.json";
@@ -65,6 +67,9 @@ pub struct App {
     pub session: AtomicUsize,
     /// Unix time of the last request from a browser extension; 0 for never.
     extension_seen: AtomicU64,
+    /// The version the extension last said it is; "" for never said (and an
+    /// extension from before 1.4.2, which does not say, counts as older).
+    extension_version: Mutex<String>,
     /// Sent by the panel with every change it asks for; see `panel_key`.
     pub panel_key: String,
     settings: Mutex<Settings>,
@@ -190,6 +195,9 @@ impl App {
     pub fn new(cfg: Config, settings: Settings, store: Store, port: u16) -> App {
         let history_file = data_dir(&cfg).join(history::FILE_NAME);
         let key = panel_key(&data_dir(&cfg));
+        let extension_version = fs::read_to_string(data_dir(&cfg).join(EXTENSION_VERSION))
+            .map(|v| v.trim().to_string())
+            .unwrap_or_default();
         let seen = fs::read_to_string(data_dir(&cfg).join(EXTENSION_SEEN))
             .ok()
             .and_then(|t| t.trim().parse::<u64>().ok())
@@ -201,6 +209,7 @@ impl App {
             jobs: Jobs::default(),
             session: AtomicUsize::new(0),
             extension_seen: AtomicU64::new(seen),
+            extension_version: Mutex::new(extension_version),
             panel_key: key,
             settings: Mutex::new(settings),
             store: Mutex::new(store),
@@ -243,13 +252,21 @@ impl App {
 
     /// A browser extension made a request. Noted on disk the first time each
     /// run, so a restart does not bring back the install instructions.
-    pub fn extension_contact(&self) {
+    pub fn extension_contact(&self, version: Option<&str>) {
         let now = history::now();
         let before = self.extension_seen.swap(now, Ordering::Relaxed);
+        let dir = data_dir(&self.cfg);
         if before < self.started {
-            let dir = data_dir(&self.cfg);
             let _ = fs::create_dir_all(&dir);
             let _ = fs::write(dir.join(EXTENSION_SEEN), now.to_string());
+        }
+        if let Some(version) = version {
+            let mut known = lock(&self.extension_version);
+            if *known != version {
+                *known = version.to_string();
+                let _ = fs::create_dir_all(&dir);
+                let _ = fs::write(dir.join(EXTENSION_VERSION), version);
+            }
         }
     }
 
@@ -739,6 +756,12 @@ impl App {
                 ]),
             ),
             ("extension_seen", (seen > 0).then_some(seen).into()),
+            (
+                "extension_version",
+                Some(lock(&self.extension_version).clone())
+                    .filter(|v| !v.is_empty())
+                    .into(),
+            ),
             ("auto_download", s.auto_download.into()),
             ("job", job.into()),
             ("restart_needed", self.restart_needed(&s).into()),
