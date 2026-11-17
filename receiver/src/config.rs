@@ -64,6 +64,8 @@ ENVIRONMENT:
     LINK_RECEIVER_ADDR       Same as --addr
     LINK_RECEIVER_PORT       Same as --port
     X_LINK_COLLECTOR_CONFIG  Same as --config
+    X_LINK_EXTENSION_IDS     More Chromium extension ids to take links from,
+                             comma-separated (ours is always allowed)
 
 SETTINGS:
     The panel saves its settings to one JSON file, which x-download and

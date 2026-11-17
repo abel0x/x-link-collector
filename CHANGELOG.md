@@ -1,5 +1,26 @@
 # Changelog
 
+## [Unreleased]
+
+### Security
+
+- **In Chromium, the receiver takes links from our extension only.** The
+  extension now has a fixed id, from a public key in its manifest:
+  `jnedknmekfknjaajolahghmpigmmfell`, unpacked and (once published) from the
+  Chrome Web Store alike. Any other Chromium extension is refused. Firefox
+  gives each install an id at random, so there any extension may still hand
+  over a link, and nothing more. `X_LINK_EXTENSION_IDS` adds ids by hand.
+
+  **After updating, remove the old unpacked extension and load `extension/`
+  again**: a copy loaded before this has another id, and its links are refused
+  (its tabs stay open, so nothing is lost).
+
+### Added
+
+- `make store-zip` and [docs/chrome-web-store.md](docs/chrome-web-store.md):
+  the package and the listing, in English and Turkish, for publishing the
+  extension on the Chrome Web Store. Releases carry that package too.
+
 ## [1.3.0] - 2026-11-17
 
 ### Added

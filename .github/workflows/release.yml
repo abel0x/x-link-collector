@@ -101,6 +101,13 @@ jobs:
           zip -qr ../x-link-collector-extension.zip .
           cd ..
           shasum -a 256 x-link-collector-extension.zip > x-link-collector-extension.zip.sha256
+      # The Chrome Web Store's upload: the same files, the manifest without its
+      # "key" (docs/chrome-web-store.md). The private key never comes near CI.
+      - name: zip for the Chrome Web Store
+        run: |
+          make store-zip
+          mv dist/x-link-collector-chrome-web-store.zip .
+          shasum -a 256 x-link-collector-chrome-web-store.zip > x-link-collector-chrome-web-store.zip.sha256
       # Release Firefox only installs add-ons Mozilla has signed. With the
       # AMO_JWT_ISSUER / AMO_JWT_SECRET repository secrets set (an API key from
       # addons.mozilla.org), the add-on is signed as unlisted: not shown on
@@ -124,6 +131,8 @@ jobs:
           path: |
             x-link-collector-extension.zip
             x-link-collector-extension.zip.sha256
+            x-link-collector-chrome-web-store.zip
+            x-link-collector-chrome-web-store.zip.sha256
             x-link-collector-firefox.xpi
             x-link-collector-firefox.xpi.sha256
           if-no-files-found: warn

@@ -5,6 +5,7 @@
   "description": "__MSG_description__",
   "default_locale": "en",
   "homepage_url": "https://github.com/abel0x/x-link-collector",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAnJC5lGpIwSoZSOSmGCYl6eKUSa+0YLlls4c2tu6mMmsBm1d+jqoUbwOUe26IlB+rsY/p2lItnOWPRUJoAKQdTGlR4g6Q4yOKgT8O2tugVBSZSPdcoaf0VZLQM4m/T29jEFabFdptPKsi7T2CnWzTI5lI3QKZj0zcDq4hkl6EYn+aKLRdQ+yyan3LsTPcaB8TYPnSdA1DgBHcY1R/RKc+3I2XxJXzyFTIar/2sU1i1wSApZrVlEoI8yT2+t9DVblGAh2MdNt/u4NKKfz6H7LTA99L1ywx2A0lod32tLdCK0GrdkmobfeA6TZQsfqLEgYobiiBu1CFHY2QAtZLytzLyQIDAQAB",
   "icons": {
     "16": "icons/icon-16.png",
     "32": "icons/icon-32.png",

@@ -27,6 +27,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 TWEET = "https://twitter.com/smoke_test/status/1234567890123456789?s=20"
 CLEAN = "https://x.com/smoke_test/status/1234567890123456789"
+OURS = "chrome-extension://jnedknmekfknjaajolahghmpigmmfell"  # from the manifest's key
+FIREFOX = "moz-extension://1b2c3d4e-0000-4000-8000-000000000000"
 
 
 def free_port() -> int:
@@ -109,7 +111,7 @@ def run(binary: Path, work: Path) -> None:
         check(status == 200 and b"<title>x-link-collector</title>" in raw, "the panel is served")
 
         status, _, raw = r.request("/", TWEET.encode(), {
-            "Content-Type": "text/plain;charset=UTF-8", "Origin": "chrome-extension://smoke"}, "POST")
+            "Content-Type": "text/plain;charset=UTF-8", "Origin": OURS}, "POST")
         check(status == 200 and json.loads(raw)["added"] == 1, "a capture is accepted")
         check(r.links.read_text().splitlines() == [CLEAN], "and written to links.txt, cleaned")
 
@@ -117,14 +119,17 @@ def run(binary: Path, work: Path) -> None:
         check(status == 403, "a web page cannot add links")
         status, _, _ = r.get("/api/status", {"Host": "evil.example"})
         check(status == 421, "nor read the panel through another name")
-        other = {"Origin": "chrome-extension://another", "Content-Type": "application/json"}
+        status, _, _ = r.request("/", b"https://x.com/a/status/1", {
+            "Content-Type": "text/plain", "Origin": "chrome-extension://abcdefghijklmnopabcdefghijklmnop"}, "POST")
+        check(status == 403, "another Chromium extension cannot add links")
+        other = {"Origin": FIREFOX, "Content-Type": "application/json"}
         status, _, _ = r.request("/api/settings", b'{"python": "/bin/sh"}', other, "POST")
-        check(status == 403, "another extension cannot change the settings")
+        check(status == 403, "an extension cannot change the settings")
         status, _, _ = r.request("/api/job", b'{"kind": "download"}', other, "POST")
         check(status == 403, "nor start a job")
-        status, _, _ = r.get("/api/settings", {"Origin": "chrome-extension://another"})
+        status, _, _ = r.get("/api/settings", {"Origin": FIREFOX})
         check(status == 403, "nor read the panel's API")
-        status, _, _ = r.get("/health", {"Origin": "chrome-extension://smoke"})
+        status, _, _ = r.get("/health", {"Origin": OURS})
         check(status == 200, "the extension still sees whether the receiver is up")
 
         status, s = r.api("/api/status")

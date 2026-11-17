@@ -316,3 +316,13 @@ test('the right-click menu collects a tweet without opening or closing a tab', a
   assert.deepEqual(removed, []);
   assert.deepEqual(created, []);
 });
+
+test("the manifest's key gives the extension id the receiver lets in", async () => {
+  const { createHash } = await import('node:crypto');
+  const manifest = JSON.parse(readFileSync(join(here, '..', 'extension', 'manifest.json'), 'utf8'));
+  // Chromium's rule: the first 32 hex digits of SHA-256 over the public key, a-p for 0-f.
+  const hex = createHash('sha256').update(Buffer.from(manifest.key, 'base64')).digest('hex').slice(0, 32);
+  const id = [...hex].map((d) => String.fromCharCode(97 + parseInt(d, 16))).join('');
+  const http = readFileSync(join(here, '..', 'receiver', 'src', 'http.rs'), 'utf8');
+  assert.ok(http.includes(`CHROMIUM_IDS: [&str; 1] = ["${id}"]`), `receiver pins ${id}`);
+});

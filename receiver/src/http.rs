@@ -177,10 +177,30 @@ pub fn cors_for(origin: Option<&str>, port: u16) -> Cors {
     }
 }
 
+/// Our extension's id in every Chromium browser, unpacked or from the Chrome
+/// Web Store alike: it follows from the public "key" in extension/manifest.json.
+/// tests/extension.test.mjs checks the two still agree.
+pub const CHROMIUM_IDS: [&str; 1] = ["jnedknmekfknjaajolahghmpigmmfell"];
+
+/// A browser extension allowed to hand over links. In Chromium that is ours,
+/// by id, plus any listed in X_LINK_EXTENSION_IDS (comma-separated; an older
+/// unpacked copy, say). Firefox gives each install an id of its own at random,
+/// so there any extension is let through -- to the capture endpoint only.
 pub fn is_extension(origin: &str) -> bool {
-    origin.starts_with("chrome-extension://")
-        || origin.starts_with("moz-extension://")
-        || origin.starts_with("safari-web-extension://")
+    if let Some(id) = origin.strip_prefix("chrome-extension://") {
+        let id = id.trim_end_matches('/');
+        return CHROMIUM_IDS.contains(&id) || extra_ids().iter().any(|extra| extra == id);
+    }
+    origin.starts_with("moz-extension://") || origin.starts_with("safari-web-extension://")
+}
+
+fn extra_ids() -> Vec<String> {
+    std::env::var("X_LINK_EXTENSION_IDS")
+        .unwrap_or_default()
+        .split(',')
+        .map(|id| id.trim().to_ascii_lowercase())
+        .filter(|id| !id.is_empty())
+        .collect()
 }
 
 /// What a browser extension may ask for: hand over a link, and see whether
@@ -396,8 +416,25 @@ mod tests {
     fn cors_policy_allows_only_extensions_the_panel_and_cli() {
         assert!(matches!(cors_for(None, 9876), Cors::Allow(None)));
         assert!(matches!(
-            cors_for(Some("chrome-extension://abcdef"), 9876),
+            cors_for(
+                Some(&format!("chrome-extension://{}", CHROMIUM_IDS[0])),
+                9876
+            ),
             Cors::Allow(Some(_))
+        ));
+        assert!(matches!(
+            cors_for(
+                Some("moz-extension://1b2c3d4e-0000-4000-8000-000000000000"),
+                9876
+            ),
+            Cors::Allow(Some(_))
+        ));
+        assert!(matches!(
+            cors_for(
+                Some("chrome-extension://abcdefghijklmnopabcdefghijklmnop"),
+                9876
+            ),
+            Cors::Deny
         ));
         assert!(matches!(
             cors_for(Some("http://127.0.0.1:9876"), 9876),

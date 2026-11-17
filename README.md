@@ -81,7 +81,11 @@ of browsers:
 
 - **Vivaldi, Chrome, Brave, Edge:** open `vivaldi://extensions` (or
   `chrome://extensions`), turn on **Developer mode**, click **Load unpacked**,
-  and pick the `extension/` folder.
+  and pick the `extension/` folder. Its id is always
+  `jnedknmekfknjaajolahghmpigmmfell`, and that is the only Chromium extension
+  the receiver takes links from; remove a copy loaded before 1.4.0, which had
+  another. (Publishing it on the Chrome Web Store:
+  [docs/chrome-web-store.md](docs/chrome-web-store.md).)
 - **Firefox (128 or newer):** install `x-link-collector-firefox.xpi` from
   [Releases](https://github.com/abel0x/x-link-collector/releases). To try the
   folder itself, open `about:debugging`, choose **This Firefox → Load Temporary

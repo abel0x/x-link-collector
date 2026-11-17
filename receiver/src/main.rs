@@ -227,15 +227,26 @@ fn handle_connection(mut stream: TcpStream, app: &App) {
     let origin = req.header("origin").map(str::to_string);
     let cors = http::cors_for(origin.as_deref(), app.port);
     if matches!(cors, http::Cors::Deny) {
+        let origin = origin.unwrap_or_default();
+        let stranger = origin.starts_with("chrome-extension://");
         elog!(
-            "refused {} {} from web origin {}",
+            "refused {} {} from {} {origin}",
             req.method,
             req.path,
-            origin.unwrap_or_default()
+            if stranger {
+                "an extension this receiver does not know:"
+            } else {
+                "web origin"
+            }
         );
         let res = Response::text(
             403,
-            "this endpoint only accepts browser extensions, its own panel and local tools\n",
+            if stranger {
+                "this is not the x-link-collector extension; load the one in this release's \
+                 extension/ folder, or add its id to X_LINK_EXTENSION_IDS\n"
+            } else {
+                "this endpoint only accepts browser extensions, its own panel and local tools\n"
+            },
         );
         let _ = http::write_response(&mut stream, &res, &cors, false);
         return;
