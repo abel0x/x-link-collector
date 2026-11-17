@@ -1,5 +1,15 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- The extension's page, opened as a file instead of from the extension, said
+  x-link-receiver was not running and asked again every three seconds; the
+  receiver refused each try ("web origin null" in its log). It now says to
+  open it from the extension, and asks nothing. The log names such a page for
+  what it is.
+
 ## [1.4.2] - 2026-11-17
 
 ### Added

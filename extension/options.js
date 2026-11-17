@@ -30,6 +30,7 @@ const WORDS = {
     save: 'Save',
     saved: 'Saved.',
     invalid: 'A port is a whole number from 1 to 65535.',
+    notHere: 'This page only works opened from the extension: its Options, or a click on its icon when x-link-receiver is not running. Opened as a file, it cannot reach x-link-receiver.',
   },
   tr: {
     checking: 'Kontrol ediliyor…',
@@ -47,6 +48,7 @@ const WORDS = {
     save: 'Kaydet',
     saved: 'Kaydedildi.',
     invalid: 'Port, 1 ile 65535 arasında bir tam sayı olmalı.',
+    notHere: 'Bu sayfa yalnızca eklentinin içinden açıldığında çalışır: Seçenekler’den ya da x-link-receiver çalışmıyorken simgesine tıklayarak. Dosya olarak açıldığında x-link-receiver’a ulaşamaz.',
   },
 };
 
@@ -121,8 +123,20 @@ async function save(event) {
   check();
 }
 
+/** An extension page, not the file opened from disk (whose origin is "null"). */
+const inExtension = /^(chrome|moz|safari-web)-extension:$/.test(location.protocol);
+
 async function start() {
   document.documentElement.lang = lang;
+  if (!inExtension) {
+    // As a file the receiver refuses it, rightly; say so instead of asking
+    // again every few seconds whether it is running.
+    $('state').className = 'state down';
+    $('state-text').textContent = t('notHere');
+    $('detail').textContent = '';
+    for (const id of ['panel', 'start', 'retry', 'form']) $(id).hidden = true;
+    return;
+  }
   $('panel').textContent = t('panel');
   $('retry').textContent = t('retry');
   $('start-title').textContent = t('startTitle');

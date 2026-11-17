@@ -235,6 +235,8 @@ fn handle_connection(mut stream: TcpStream, app: &App) {
             req.path,
             if stranger {
                 "an extension this receiver does not know:"
+            } else if origin == "null" {
+                "a page with no origin (a local file, say, or a sandboxed frame):"
             } else {
                 "web origin"
             }
