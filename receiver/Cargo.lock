@@ -4,4 +4,4 @@ version = 3
 
 [[package]]
 name = "x-link-receiver"
-version = "1.4.2"
+version = "1.5.0"
