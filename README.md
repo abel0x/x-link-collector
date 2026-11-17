@@ -260,7 +260,8 @@ carrying a web-page `Origin`** — without that rule, any site you visit could
 append lines to your file. The panel goes one step further and answers only to
 `127.0.0.1` and `localhost`, so a site cannot reach it by pointing its own domain
 at your machine. Browser extensions may hand over a link and ask whether the
-receiver is up, nothing more: the panel's API answers the panel alone. Nothing
+receiver is up, nothing more: the panel's API answers the panel alone, and a
+change sent from a browser must carry a key only the panel page is given. Nothing
 is uploaded anywhere, and the downloader fetches tweets on x.com only.
 
 The one exception is opt-in and announced: the mirror route (`--mirror`, or

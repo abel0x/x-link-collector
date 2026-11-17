@@ -14,6 +14,13 @@
   **After updating, remove the old unpacked extension and load `extension/`
   again**: a copy loaded before this has another id, and its links are refused
   (its tabs stay open, so nothing is lost).
+- **The panel's API takes changes only from the panel.** Each install has a
+  key of its own (`panel-key`, next to the settings, readable by you alone);
+  the receiver writes it into the panel page and every change the panel asks
+  for carries it, which a page elsewhere cannot read. Browsers also say where
+  a request comes from, and the API now answers only the panel's own pages,
+  so another site cannot set off even a GET with an image tag. curl and
+  scripts, which send neither, work as before.
 
 ### Added
 

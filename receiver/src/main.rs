@@ -303,15 +303,48 @@ fn route(req: &http::Request, app: &App) -> Response {
                 return refused();
             }
             if path.starts_with("/api/") {
+                if let Some(refusal) = browser_refusal(req, app) {
+                    return refusal;
+                }
                 api::route(req, app)
             } else if path.starts_with("/media/") && read {
                 media::serve(req, &app.media_dir())
             } else {
-                panel::asset(path).unwrap_or_else(|| Response::text(404, "not found\n"))
+                panel::asset(path, &app.panel_key)
+                    .unwrap_or_else(|| Response::text(404, "not found\n"))
             }
         }
         _ => Response::text(404, "not found\n"),
     }
+}
+
+/// What a browser may not ask of the API. Browsers say where a request comes
+/// from (Sec-Fetch-Site): only the panel's own pages, or an address typed in,
+/// get an answer, so another site cannot set off even a GET with an <img>.
+/// A change from a browser must also carry the panel key, which only a page
+/// the receiver served can know. Local tools send neither header and are
+/// let through, as before.
+fn browser_refusal(req: &http::Request, app: &App) -> Option<Response> {
+    let site = req.header("sec-fetch-site");
+    if let Some(site) = site {
+        if site != "same-origin" && site != "none" {
+            return Some(Response::text(
+                403,
+                "the API answers the panel's own pages\n",
+            ));
+        }
+    }
+    let browser = site.is_some() || req.header("origin").is_some();
+    if req.method == "POST" && browser && req.header("x-panel-key") != Some(app.panel_key.as_str())
+    {
+        let body = json::obj([
+            ("ok", false.into()),
+            ("error", "this page is out of date; reload it".into()),
+            ("code", "panel_key".into()),
+        ]);
+        return Some(Response::json(403, &body));
+    }
+    None
 }
 
 fn wants_html(req: &http::Request) -> bool {

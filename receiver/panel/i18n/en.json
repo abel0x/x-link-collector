@@ -337,6 +337,7 @@
   "err.write": "The link could not be written to the file ({reason}).",
   "err.no_url": "None of that was a link.",
   "err.empty": "Paste one or more links first.",
+  "err.panel_key": "This page is out of date. It reloads itself.",
   "reason.denied": "permission denied",
   "reason.missing": "no such place",
   "reason.no_opener": "no program to open it with",

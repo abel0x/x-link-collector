@@ -132,6 +132,19 @@ def run(binary: Path, work: Path) -> None:
         status, _, _ = r.get("/health", {"Origin": OURS})
         check(status == 200, "the extension still sees whether the receiver is up")
 
+        page = r.get("/", {"Accept": "text/html"})[2].decode()
+        key = page.split('<meta name="panel-key" content="', 1)[1].split('"', 1)[0]
+        check(len(key) == 32, "the panel page carries its key")
+        panel = {"Origin": f"http://127.0.0.1:{r.port}", "Content-Type": "application/json",
+                 "Sec-Fetch-Site": "same-origin"}
+        status, _, raw = r.request("/api/settings", b'{"jobs": 3}', panel, "POST")
+        check(status == 403 and json.loads(raw)["code"] == "panel_key",
+              "a change from a browser without the key is refused")
+        status, _, _ = r.request("/api/settings", b'{"jobs": 3}', {**panel, "X-Panel-Key": key}, "POST")
+        check(status == 200, "and taken with it")
+        status, _, _ = r.get("/api/status", {"Sec-Fetch-Site": "cross-site"})
+        check(status == 403, "another site cannot set off even a GET")
+
         status, s = r.api("/api/status")
         check(s["total"] == 1 and s["downloads"]["pending"] == 1, "status counts the link")
 

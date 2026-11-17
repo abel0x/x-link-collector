@@ -109,14 +109,19 @@ function icon(name) {
  * needs; `explain` puts it into the reader's language. The English `error`
  * text stands in for anything without a code.
  */
+/** The receiver writes this into the page; every change sent carries it. */
+const PANEL_KEY = document.querySelector('meta[name="panel-key"]')?.content || '';
+
 async function request(path, init = {}) {
   let res;
   try {
-    res = await fetch(path, { cache: 'no-store', ...init });
+    res = await fetch(path, { cache: 'no-store', ...init, headers: { 'X-Panel-Key': PANEL_KEY, ...init.headers } });
   } catch {
     throw Object.assign(new Error(WORDS.en['err.network']), { code: 'network' });
   }
   const data = await res.json().catch(() => ({}));
+  // A key this page does not have: it was served before the key changed.
+  if (res.status === 403 && data.code === 'panel_key') location.reload();
   if (!res.ok) {
     throw Object.assign(new Error(data.error || `HTTP ${res.status}`), { code: data.code, vars: data.vars });
   }

@@ -289,6 +289,7 @@
   "err.write": "Bağlantı dosyaya yazılamadı ({reason}).",
   "err.no_url": "Yapıştırdıklarınızın hiçbiri bağlantı değildi.",
   "err.empty": "Önce bir ya da daha fazla bağlantı yapıştırın.",
+  "err.panel_key": "Bu sayfa güncel değil; kendiliğinden yeniden yüklenecek.",
   "reason.denied": "izin yok",
   "reason.missing": "böyle bir yer yok",
   "reason.no_opener": "açacak bir program bulunamadı",

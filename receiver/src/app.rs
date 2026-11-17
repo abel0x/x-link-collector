@@ -49,6 +49,8 @@ const MAX_ATTEMPTS: f64 = 3.0;
 /// When a browser extension last talked to a receiver, next to the settings:
 /// once it has, the panel stops showing how to install it.
 const EXTENSION_SEEN: &str = "extension-seen";
+/// The panel's key, next to the settings: see `panel_key`.
+const PANEL_KEY: &str = "panel-key";
 const MANIFEST: &str = ".x-flatten-manifest.json";
 const VIDEO_EXTS: [&str; 6] = ["mp4", "mkv", "webm", "mov", "m4v", "gif"];
 const IMAGE_EXTS: [&str; 4] = ["jpg", "jpeg", "png", "webp"];
@@ -63,6 +65,8 @@ pub struct App {
     pub session: AtomicUsize,
     /// Unix time of the last request from a browser extension; 0 for never.
     extension_seen: AtomicU64,
+    /// Sent by the panel with every change it asks for; see `panel_key`.
+    pub panel_key: String,
     settings: Mutex<Settings>,
     store: Mutex<Store>,
     history: Mutex<History>,
@@ -185,6 +189,7 @@ pub fn busy() -> Problem {
 impl App {
     pub fn new(cfg: Config, settings: Settings, store: Store, port: u16) -> App {
         let history_file = data_dir(&cfg).join(history::FILE_NAME);
+        let key = panel_key(&data_dir(&cfg));
         let seen = fs::read_to_string(data_dir(&cfg).join(EXTENSION_SEEN))
             .ok()
             .and_then(|t| t.trim().parse::<u64>().ok())
@@ -196,6 +201,7 @@ impl App {
             jobs: Jobs::default(),
             session: AtomicUsize::new(0),
             extension_seen: AtomicU64::new(seen),
+            panel_key: key,
             settings: Mutex::new(settings),
             store: Mutex::new(store),
             history: Mutex::new(History::open(history_file)),
@@ -877,6 +883,57 @@ impl App {
 }
 
 /// The settings file's folder, which also holds the capture log.
+/// A key of this install's own, which the receiver writes into the panel page
+/// it serves and the panel sends back with every change it asks for. A page
+/// elsewhere cannot read the panel (CORS, the Host check), so it cannot know
+/// the key. Kept next to the settings, readable by this user only, so a panel
+/// left open carries on across restarts.
+pub fn panel_key(dir: &Path) -> String {
+    let path = dir.join(PANEL_KEY);
+    if let Ok(text) = fs::read_to_string(&path) {
+        let key = text.trim();
+        if key.len() == 32 && key.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return key.to_string();
+        }
+    }
+    let key = random_hex();
+    let _ = fs::create_dir_all(dir);
+    if let Err(e) = write_private(&path, key.as_bytes()) {
+        elog!("cannot keep the panel key in {}: {e}", path.display());
+    }
+    key
+}
+
+/// 128 bits nobody else can guess, without a dependency: the standard
+/// library seeds every RandomState from the operating system's generator.
+fn random_hex() -> String {
+    use std::collections::hash_map::RandomState;
+    use std::hash::{BuildHasher, Hasher};
+    let nanos = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    (0..2u64)
+        .map(|i| {
+            let mut h = RandomState::new().build_hasher();
+            h.write_u64(i);
+            h.write_u128(nanos);
+            h.write_u32(std::process::id());
+            format!("{:016x}", h.finish())
+        })
+        .collect()
+}
+
+fn write_private(path: &Path, data: &[u8]) -> io::Result<()> {
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    io::Write::write_all(&mut options.open(path)?, data)
+}
+
 fn data_dir(cfg: &Config) -> PathBuf {
     cfg.config_file
         .parent()
@@ -1103,6 +1160,26 @@ fn scan_media(root: &Path, ids: &mut HashSet<String>) -> MediaStats {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_panel_key_is_kept_and_private() {
+        let dir = temp_dir("key");
+        let key = panel_key(&dir);
+        assert_eq!(key.len(), 32);
+        assert!(key.bytes().all(|b| b.is_ascii_hexdigit()));
+        assert_eq!(panel_key(&dir), key, "read back, not made again");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = fs::metadata(dir.join(PANEL_KEY))
+                .unwrap()
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
+        assert_ne!(random_hex(), random_hex());
+        fs::remove_dir_all(&dir).unwrap();
+    }
 
     fn temp_dir(tag: &str) -> PathBuf {
         let n = SystemTime::now()

@@ -29,17 +29,26 @@ fn words() -> Vec<u8> {
     .into_bytes()
 }
 
-pub fn asset(path: &str) -> Option<Response> {
+/// The page's place for the panel key; filled in as it is served.
+const KEY_SLOT: &str = r#"<meta name="panel-key" content="">"#;
+
+pub fn asset(path: &str, key: &str) -> Option<Response> {
+    if path == "/" || path == "/index.html" {
+        let page = include_str!("../panel/index.html").replacen(
+            KEY_SLOT,
+            &format!(r#"<meta name="panel-key" content="{key}">"#),
+            1,
+        );
+        let mut res = Response::asset("text/html; charset=utf-8", b"");
+        res.body = std::borrow::Cow::Owned(page.into_bytes());
+        return Some(secured(res));
+    }
     if path == "/words.js" {
         let mut res = Response::asset("text/javascript; charset=utf-8", b"");
         res.body = std::borrow::Cow::Owned(words());
         return Some(secured(res));
     }
     let (content_type, body): (&'static str, &'static [u8]) = match path {
-        "/" | "/index.html" => (
-            "text/html; charset=utf-8",
-            include_bytes!("../panel/index.html"),
-        ),
         "/panel.css" => (
             "text/css; charset=utf-8",
             include_bytes!("../panel/panel.css"),
@@ -72,10 +81,18 @@ mod tests {
 
     #[test]
     fn words_is_one_script_with_both_languages() {
-        let res = asset("/words.js").expect("served");
+        let res = asset("/words.js", "k").expect("served");
         let text = String::from_utf8(res.body.to_vec()).unwrap();
         assert!(text.starts_with("'use strict';\nconst WORDS = {"));
         assert!(text.contains("\"en\": {") && text.contains("\"tr\": {"));
         assert!(text.contains("\"nav.links\": \"Bağlantılar\""));
+    }
+
+    #[test]
+    fn the_page_carries_the_key() {
+        assert!(include_str!("../panel/index.html").contains(KEY_SLOT));
+        let res = asset("/", "0123abcd").expect("served");
+        let page = String::from_utf8(res.body.to_vec()).unwrap();
+        assert!(page.contains(r#"<meta name="panel-key" content="0123abcd">"#));
     }
 }
