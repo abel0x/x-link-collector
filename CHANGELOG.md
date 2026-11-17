@@ -4,6 +4,11 @@
 
 ### Added
 
+- **The Firefox add-on updates itself.** Its manifest names an update file
+  in this repository's latest release, which every release now writes; Firefox
+  checks it as it does for any add-on and installs the newer signed `.xpi`
+  from the release. Nothing goes through a store. Install 1.5.0 by hand once;
+  after that it comes by itself.
 - **Backup and restore.** Settings → Backup saves one file with the links,
   when each was collected, the download history and the settings
   (`/api/backup`). Restoring it, on this machine or another, adds what is

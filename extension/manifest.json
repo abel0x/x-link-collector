@@ -43,6 +43,7 @@
   "browser_specific_settings": {
     "gecko": {
       "id": "x-link-collector@abel0x",
+      "update_url": "https://github.com/abel0x/x-link-collector/releases/latest/download/updates.json",
       "strict_min_version": "128.0",
       "data_collection_permissions": {
         "required": [

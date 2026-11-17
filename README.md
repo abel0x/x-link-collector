@@ -104,7 +104,8 @@ of browsers:
   the receiver takes links from; remove a copy loaded before 1.4.0, which had
   another.
 - **Firefox (128 or newer):** install `x-link-collector-firefox.xpi` from
-  [Releases](https://github.com/abel0x/x-link-collector/releases). To try the
+  [Releases](https://github.com/abel0x/x-link-collector/releases); from 1.5.0
+  on it updates itself from there, as Firefox checks for updates. To try the
   folder itself, open `about:debugging`, choose **This Firefox → Load Temporary
   Add-on** and pick `extension/manifest.json`; Firefox forgets it on restart.
 
