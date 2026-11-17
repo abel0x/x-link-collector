@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Added
+
+- CI builds and tests the receiver with Rust 1.65, the oldest version
+  `Cargo.toml` promises, so the promise is checked rather than assumed.
+
 ### Fixed
 
 - The extension's page, opened as a file instead of from the extension, said
