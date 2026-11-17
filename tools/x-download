@@ -24,6 +24,7 @@ made in the panel holds here too; any option given on the command line wins.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -188,6 +189,8 @@ def config_defaults(config: dict) -> dict:
         out["cookies"] = cookies.strip()
     if config.get("metadata") is True:
         out["metadata"] = True
+    if config.get("link_duplicates") is False:
+        out["keep_duplicates"] = True
     # Off: a link whose files are no longer in the media folder is fetched again.
     if config.get("remember_downloads") is False:
         out["again_missing"] = True
@@ -961,6 +964,87 @@ def chunked(items: list[str], size: int) -> list[list[str]]:
     return [items[i : i + size] for i in range(0, len(items), size)]
 
 
+class Duplicates:
+    """
+    The same video is often posted again, by another account or in a quote.
+    When a download turns out byte for byte the same as a file already in the
+    media folder, it is replaced by a hard link to that file: it stays where it
+    is, under its own tweet's name, so nothing looks missing, and the disk
+    holds it once. Where a hard link cannot be made, both copies stay.
+    """
+
+    SMALLEST = 16 * 1024  # thumbnails and stubs are not worth a hash
+
+    def __init__(self, root: Path):
+        self.root = root
+        self.lock = threading.Lock()
+        self.by_size: dict[int, list[Path]] | None = None
+        self.digests: dict[tuple, str] = {}
+
+    def index(self) -> dict[int, list[Path]]:
+        by_size: dict[int, list[Path]] = {}
+        for path in sorted(self.root.rglob("*")):
+            name = path.name
+            if name.startswith(".") or name.endswith(".part") or path.is_symlink():
+                continue
+            try:
+                if not path.is_file():
+                    continue
+                size = path.stat().st_size
+            except OSError:
+                continue
+            if size >= self.SMALLEST:
+                by_size.setdefault(size, []).append(path)
+        return by_size
+
+    def digest(self, path: Path) -> str:
+        info = path.stat()
+        key = (str(path), info.st_size, info.st_mtime_ns)
+        if key not in self.digests:
+            sha = hashlib.sha256()
+            with open(path, "rb") as source:
+                for block in iter(lambda: source.read(1 << 20), b""):
+                    sha.update(block)
+            self.digests[key] = sha.hexdigest()
+        return self.digests[key]
+
+    def settle(self, files: list[str]) -> list[tuple[str, str, int]]:
+        """Link each new file that repeats one already here: (file, same as, bytes)."""
+        linked = []
+        with self.lock:
+            if self.by_size is None:
+                self.by_size = self.index()
+            for rel in files:
+                path = self.root / rel
+                try:
+                    size = path.stat().st_size
+                except OSError:
+                    continue
+                if size < self.SMALLEST:
+                    continue
+                known = self.by_size.setdefault(size, [])
+                for other in known:
+                    try:
+                        if other == path or os.path.samefile(other, path):
+                            continue
+                        if self.digest(other) != self.digest(path):
+                            continue
+                    except OSError:
+                        continue
+                    spare = path.with_name(f".{path.name}.link")
+                    try:
+                        os.link(other, spare)
+                        os.replace(spare, path)
+                    except OSError:
+                        spare.unlink(missing_ok=True)
+                        break
+                    linked.append((rel, str(other.relative_to(self.root)), size))
+                    break
+                if path not in known:
+                    known.append(path)
+        return linked
+
+
 def process(links: list[str], state: State, opts, tools: Tools) -> dict[str, int]:
     gone = gone_links(links, state, opts) if opts.again_missing else set()
     if gone:
@@ -968,7 +1052,8 @@ def process(links: list[str], state: State, opts, tools: Tools) -> dict[str, int
               f"fetching it again", file=sys.stderr, flush=True)
     outstanding = pending(links, state, opts, gone)
     fresh = {link_key(url) for url in opts.again or []} | gone
-    tally = {DONE: 0, NO_MEDIA: 0, FAILED: 0, "auth": 0, "processed": 0, "left": 0}
+    tally = {DONE: 0, NO_MEDIA: 0, FAILED: 0, "auth": 0, "processed": 0, "left": 0,
+             "linked": 0, "saved": 0}
     if not outstanding:
         if opts.dry_run:
             print("nothing to download")
@@ -994,6 +1079,7 @@ def process(links: list[str], state: State, opts, tools: Tools) -> dict[str, int
     )
     stop = threading.Event()
     say = threading.Lock()
+    duplicates = None if opts.keep_duplicates else Duplicates(opts.out)
     counter = {"n": 0}
     started = time.monotonic()
 
@@ -1008,6 +1094,7 @@ def process(links: list[str], state: State, opts, tools: Tools) -> dict[str, int
             return
         entry = state.get(url)
         result = fetch(url, opts, tools, fresh=link_key(url) in fresh)
+        linked = duplicates.settle(result.files) if duplicates and result.status == DONE else []
         state.record(
             url,
             status=result.status,
@@ -1029,6 +1116,11 @@ def process(links: list[str], state: State, opts, tools: Tools) -> dict[str, int
                 size = total_size(result.files, opts.out)
                 names = ", ".join(result.files)
                 print(f"{prefix} ok  {names}  ({human(size)}){eta}", flush=True)
+                for name, same, saved in linked:
+                    tally["linked"] += 1
+                    tally["saved"] += saved
+                    print(f"      {name} is the same as {same}: kept once, "
+                          f"{human(saved)} saved", flush=True)
             elif result.status == NO_MEDIA:
                 tally[NO_MEDIA] += 1
                 print(f"{prefix} --  no media in {url}{eta}", flush=True)
@@ -1160,6 +1252,9 @@ def build_parser() -> argparse.ArgumentParser:
                        help="media directory (default: <desktop>/x-media)")
     where.add_argument("--metadata", action="store_true",
                        help="also write the tweet's metadata alongside the media")
+    where.add_argument("--keep-duplicates", action="store_true",
+                       help="keep a second copy of a file already in the media folder "
+                            "(default: it becomes a hard link to the first)")
 
     pace = p.add_argument_group("how much, how fast")
     pace.add_argument("-j", "--jobs", type=int, default=DEFAULT_JOBS, metavar="N",
@@ -1313,6 +1408,9 @@ def report(tally: dict[str, int], opts) -> None:
         f"done: {tally[DONE]} downloaded, {tally[NO_MEDIA]} without media, "
         f"{tally[FAILED]} failed  ->  {opts.out}"
     )
+    if tally.get("linked"):
+        print(f"{tally['linked']} file was already in the media folder; "
+              f"kept once, {human(tally['saved'])} saved")
     if tally.get("left"):
         print(
             f"stopped after {tally['processed']}; {tally['left']} link still "

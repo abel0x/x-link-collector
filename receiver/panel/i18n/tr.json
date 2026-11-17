@@ -129,6 +129,8 @@
   "links.again": "Yeniden indir",
   "st.remember_downloads": "Dosyaları taşınsa da indirilenleri hatırla",
   "st.remember_downloadsHelp": "Açık: bir kez indirilen bağlantı, dosyalarını taşısanız ya da silseniz de kendiliğinden bir daha indirilmez. Kapalı: dosyaları medya klasöründe olmayan bağlantı yeniden indirilir.",
+  "st.link_duplicates": "Yeniden paylaşılan videonun tek kopyasını tut",
+  "st.link_duplicatesHelp": "İndirilen dosya medya klasöründeki bir dosyayla bayt bayt aynıysa, iki ad diskte tek kopyayı paylaşır (sabit bağlantı). İkisi de yerinde kalır.",
   "st.historyFile": "İndirme geçmişi",
   "links.show": "Medyayı göster",
   "viewer.prev": "Önceki",

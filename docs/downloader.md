@@ -150,6 +150,15 @@ hosts make no difference either. Collapsed lines are reported at startup.
 The receiver already applies this rule when collecting, so a `links.txt` it
 produced is clean; this matters for hand-edited or imported lists.
 
+**The same file, posted again.** A video is often reposted by another account,
+under a tweet id of its own. When a download comes out byte for byte the same
+as a file already in the media folder (same size, then the same SHA-256), it
+is replaced by a hard link to that file: both names stay where they are, so
+nothing looks missing, and the disk holds the video once. The run prints each
+one and what it saved. Where a hard link cannot be made (another file system,
+say), both copies stay. `--keep-duplicates`, or the setting in the panel,
+turns this off.
+
 ## State and retries
 
 `download-history.json`, next to the panel's settings file, records one entry
@@ -197,7 +206,8 @@ links in the retry queue instead of retiring them.
 
 What you choose in the panel is saved to one file (see the main README for
 where), and `x-download` takes its defaults from it: the links file, the media
-folder, parallel downloads, mirrors, login, timeout and `--metadata`. An option
+folder, parallel downloads, mirrors, login, timeout, `--metadata` and
+`--keep-duplicates`. An option
 given on the command line still wins, and `--no-config` ignores the file
 altogether. Without the file, everything is as described here.
 
@@ -217,6 +227,7 @@ altogether. Without the file, everything is as described here.
 --look-in DIR       another folder to look for downloaded files in
 --history FILE      the download history (default: next to the settings file)
 --metadata          also write the tweet's metadata JSON
+--keep-duplicates   keep a second copy of a file already in the media folder
 --limit N           stop after N links this run; the rest stay queued
 --batch N           work the queue in groups of N, reporting after each
 --pause SECONDS     wait between batches (with --batch)

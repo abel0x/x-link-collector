@@ -335,3 +335,53 @@ class PlatformPaths(unittest.TestCase):
             desktop, config = self.paths(xd, "linux", XDG_CONFIG_HOME=tmp)
         self.assertEqual(desktop, Path("/u") / "Masaüstü")
         self.assertEqual(config, Path(tmp) / "x-link-collector" / "config.json")
+
+
+class Duplicates(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def put(self, rel: str, data: bytes) -> Path:
+        path = self.root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+        return path
+
+    def test_the_same_file_again_is_kept_once(self):
+        video = os.urandom(40 * 1024)
+        first = self.put("alice/100-1.mp4", video)
+        again = self.put("bob/200-1.mp4", video)
+        linked = xd.Duplicates(self.root).settle(["bob/200-1.mp4"])
+        self.assertEqual(linked, [("bob/200-1.mp4", str(Path("alice/100-1.mp4")), len(video))])
+        self.assertTrue(os.path.samefile(first, again))
+        self.assertEqual(again.read_bytes(), video)
+        self.assertEqual([p.name for p in (self.root / "bob").iterdir()], ["200-1.mp4"])
+
+    def test_different_files_of_one_size_stay_apart(self):
+        self.put("alice/100-1.mp4", os.urandom(40 * 1024))
+        other = self.put("bob/200-1.mp4", os.urandom(40 * 1024))
+        self.assertEqual(xd.Duplicates(self.root).settle(["bob/200-1.mp4"]), [])
+        self.assertFalse(os.path.samefile(self.root / "alice/100-1.mp4", other))
+
+    def test_small_files_and_hidden_ones_are_left_alone(self):
+        tiny = b"x" * 100
+        self.put("alice/100-1.jpg", tiny)
+        self.put("bob/200-1.jpg", tiny)
+        self.put("alice/.state.json", os.urandom(40 * 1024))
+        self.assertEqual(xd.Duplicates(self.root).settle(["bob/200-1.jpg"]), [])
+
+    def test_two_new_files_in_one_run_find_each_other(self):
+        video = os.urandom(40 * 1024)
+        dupes = xd.Duplicates(self.root)
+        self.put("alice/100-1.mp4", video)
+        self.assertEqual(dupes.settle(["alice/100-1.mp4"]), [])
+        self.put("bob/200-1.mp4", video)
+        self.assertEqual(len(dupes.settle(["bob/200-1.mp4"])), 1)
+
+    def test_the_setting_turns_it_off(self):
+        self.assertEqual(xd.config_defaults({"link_duplicates": False}), {"keep_duplicates": True})
+        self.assertEqual(xd.config_defaults({"link_duplicates": True}), {})

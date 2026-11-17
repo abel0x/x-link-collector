@@ -4,6 +4,11 @@
 
 ### Added
 
+- **A video posted again is kept once.** When a download comes out byte for
+  byte the same as a file already in the media folder, it becomes a hard link
+  to it: both names stay where they are and the disk holds the file once. The
+  run says what it saved. On by default; *Keep one copy of a video posted
+  again* in Settings, or `--keep-duplicates`, turns it off.
 - **Gallery:** a page of every photo and video in the media folder, newest
   first, as a grid. Show only videos or only photos, or one account (each
   with how many it has); click one to open it in the viewer, which steps

@@ -1630,6 +1630,7 @@ const FORM = [
     { key: 'metadata', kind: 'switch' },
     { key: 'auto_download', kind: 'switch', help: () => t('dl.autoHelp') },
     { key: 'remember_downloads', kind: 'switch' },
+    { key: 'link_duplicates', kind: 'switch' },
   ]],
   ['st.flatten', [
     { key: 'flatten_dest', kind: 'path', placeholder: (v) => v.effective.flatten_dest },

@@ -162,6 +162,8 @@
   "links.again": "Download again",
   "st.remember_downloads": "Remember downloads after their files are moved",
   "st.remember_downloadsHelp": "On: a link downloaded once is never downloaded again by itself, even if you move or delete its files. Off: a link whose files are gone from the media folder is downloaded again.",
+  "st.link_duplicates": "Keep one copy of a video posted again",
+  "st.link_duplicatesHelp": "When a download is the same, byte for byte, as a file already in the media folder, the two names share one copy on disk (a hard link). Both stay where they are.",
   "st.historyFile": "Download history",
   "links.show": "Show the media",
   "viewer.prev": "Previous",

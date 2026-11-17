@@ -389,6 +389,9 @@ impl App {
         if run.metadata {
             args.push("--metadata".into());
         }
+        if !run.link_duplicates {
+            args.push("--keep-duplicates".into());
+        }
         if flag(req, "retry_failed") {
             args.push("--retry-failed".into());
         }
