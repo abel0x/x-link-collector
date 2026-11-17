@@ -24,6 +24,10 @@
 
 ### Added
 
+- **Build attestations.** Every release archive and extension package comes
+  with GitHub's signed record of the repository, commit and workflow that
+  built it; `gh attestation verify <file> --repo abel0x/x-link-collector`
+  checks it.
 - `make store-zip` and [docs/chrome-web-store.md](docs/chrome-web-store.md):
   the package and the listing, in English and Turkish, for publishing the
   extension on the Chrome Web Store. Releases carry that package too.

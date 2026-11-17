@@ -195,6 +195,14 @@ Each archive holds the receiver, the downloader, the flattener and the extension
 plus a `.sha256` to check it against. The receiver finds the two Python tools next
 to itself, and the extension loads from the `extension` folder inside.
 
+From 1.4.0 on, every archive and extension package also has a build
+attestation: GitHub's signed record that it was built by this repository's
+release workflow, from the tagged commit. With the GitHub CLI:
+
+```sh
+gh attestation verify x-link-collector-linux-x86_64.tar.gz --repo abel0x/x-link-collector
+```
+
 <details>
 <summary><b>Linux</b> — one binary, every distribution</summary>
 

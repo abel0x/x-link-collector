@@ -15,6 +15,11 @@ jobs:
   archives:
     name: ${{ matrix.label }}
     runs-on: ${{ matrix.os }}
+    # id-token and attestations: to sign where each archive was built.
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     strategy:
       fail-fast: false
       matrix:
@@ -81,6 +86,14 @@ jobs:
           (Get-FileHash "$staging.zip" -Algorithm SHA256).Hash.ToLower() + "  $staging.zip" |
             Out-File -Encoding ascii "$staging.zip.sha256"
 
+      # A signed statement, kept by GitHub, that this file came from this
+      # repository, this commit and this workflow: gh attestation verify.
+      - name: attest where it was built
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            x-link-collector-*.tar.gz
+            x-link-collector-*.zip
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.label }}
@@ -93,6 +106,10 @@ jobs:
   extension:
     name: extension zip and Firefox add-on
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@v4
       - name: zip the unpacked extension
@@ -125,6 +142,15 @@ jobs:
             --channel unlisted --api-key "$AMO_JWT_ISSUER" --api-secret "$AMO_JWT_SECRET"
           cp signed/*.xpi x-link-collector-firefox.xpi
           shasum -a 256 x-link-collector-firefox.xpi > x-link-collector-firefox.xpi.sha256
+      - name: attest where they were built
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: x-link-collector-*.zip
+      - name: attest where the add-on was built
+        if: hashFiles('x-link-collector-firefox.xpi') != ''
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: x-link-collector-firefox.xpi
       - uses: actions/upload-artifact@v4
         with:
           name: extension
