@@ -177,8 +177,8 @@ pub fn cors_for(origin: Option<&str>, port: u16) -> Cors {
     }
 }
 
-/// Our extension's id in every Chromium browser, unpacked or from the Chrome
-/// Web Store alike: it follows from the public "key" in extension/manifest.json.
+/// Our extension's id in every Chromium browser, from whichever folder it is
+/// loaded: it follows from the public "key" in extension/manifest.json.
 /// tests/extension.test.mjs checks the two still agree.
 pub const CHROMIUM_IDS: [&str; 1] = ["jnedknmekfknjaajolahghmpigmmfell"];
 

@@ -20,7 +20,7 @@ OPEN     := $(if $(filter Darwin,$(UNAME)),open,xdg-open)
 
 .DEFAULT_GOAL := help
 .PHONY: help build ci test test-rs test-ext test-py smoke panel-test screenshots run panel install uninstall \
-	    service service-stop service-uninstall status logs package store-zip clean \
+	    service service-stop service-uninstall status logs package clean \
 	    downloader-setup downloader-update download download-watch download-all \
 	    download-status flatten flatten-undo
 
@@ -128,18 +128,6 @@ package: ## zip the extension for distribution (dist/)
 	@mkdir -p dist
 	cd extension && zip -qr ../dist/x-link-collector.zip .
 	@echo "wrote dist/x-link-collector.zip"
-
-# The Chrome Web Store takes the manifest without "key"; the private key goes
-# beside it on the first upload only, so the store keeps the id the receiver
-# expects. See docs/chrome-web-store.md. The key never enters the repository.
-STORE_KEY ?= $(HOME)/.local/share/x-link-collector-signing/chrome-extension.pem
-store-zip: ## zip the extension for the Chrome Web Store (dist/); FIRST=1 adds key.pem
-	@rm -rf dist/store && mkdir -p dist/store && cp -R extension/. dist/store/
-	$(PYTHON) -c "import json,sys;p='dist/store/manifest.json';m=json.load(open(p));m.pop('key');open(p,'w').write(json.dumps(m,indent=2,ensure_ascii=False)+chr(10))"
-	@if [ -n "$(FIRST)" ]; then cp "$(STORE_KEY)" dist/store/key.pem; echo "key.pem included: first upload only"; fi
-	cd dist/store && zip -qr ../x-link-collector-chrome-web-store.zip .
-	@rm -rf dist/store
-	@echo "wrote dist/x-link-collector-chrome-web-store.zip"
 
 downloader-setup: ## install yt-dlp + gallery-dl into tools/.venv (no sudo)
 	$(PYTHON) tools/x-download --setup

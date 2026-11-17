@@ -1,5 +1,14 @@
 # Changelog
 
+## [Unreleased]
+
+### Removed
+
+- The Chrome Web Store package (`make store-zip`, its release asset and
+  `docs/chrome-web-store.md`): x-link-collector is not published on any
+  extension store. It comes from this repository's releases, or the AUR; in
+  Chromium the extension is loaded unpacked, and keeps its fixed id.
+
 ## [1.4.1] - 2026-11-17
 
 ### Added
