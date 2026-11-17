@@ -67,10 +67,19 @@ pub fn timestamp() -> String {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
+    utc(secs, ' ')
+}
+
+/// `2026-11-17T16:53:39Z`: a moment as ISO 8601, for files other programs read.
+pub fn iso8601(secs: i64) -> String {
+    utc(secs, 'T')
+}
+
+fn utc(secs: i64, sep: char) -> String {
     let (y, m, d) = civil_from_days(secs.div_euclid(86_400));
     let sod = secs.rem_euclid(86_400);
     format!(
-        "{y:04}-{m:02}-{d:02} {:02}:{:02}:{:02}Z",
+        "{y:04}-{m:02}-{d:02}{sep}{:02}:{:02}:{:02}Z",
         sod / 3600,
         (sod % 3600) / 60,
         sod % 60
@@ -93,12 +102,18 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
 
 #[cfg(test)]
 mod tests {
-    use super::civil_from_days;
+    use super::{civil_from_days, iso8601};
 
     #[test]
     fn epoch_and_known_dates() {
         assert_eq!(civil_from_days(0), (1970, 1, 1));
         assert_eq!(civil_from_days(19_000), (2022, 1, 8));
         assert_eq!(civil_from_days(-1), (1969, 12, 31));
+    }
+
+    #[test]
+    fn iso_8601() {
+        assert_eq!(iso8601(0), "1970-01-01T00:00:00Z");
+        assert_eq!(iso8601(1_794_934_419), "2026-11-17T16:53:39Z");
     }
 }

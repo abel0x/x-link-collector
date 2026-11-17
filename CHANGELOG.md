@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Export:** the Links page's Export menu saves what the list shows, with its
+  search and filter, as CSV for a spreadsheet or JSON for a program: line,
+  link, account, tweet id, state, when it was collected, its files and why it
+  failed. The same is at `/api/export?format=csv|json`.
+- **Import from an X archive:** in Add links, pick `data/like.js` or
+  `data/bookmark.js` from the archive X sends you and every tweet in it is
+  added. The tweets they quote are left out, and an imported link does not
+  count towards the day it was read in.
+
 ### Changed
 
 - The panel's words live in `receiver/panel/i18n/en.json` and `tr.json`:

@@ -1179,6 +1179,71 @@ function wireLinks() {
     }
   });
   $('#links-more').addEventListener('click', () => loadLinks(false));
+  $('#links-import').addEventListener('change', (e) => importArchive(e.target));
+  wireExport();
+}
+
+/** Tweets in an X archive file (like.js, bookmark.js), or in any text with links. */
+function archiveLinks(text) {
+  // An archive names each tweet by id; its text may quote other tweets,
+  // which were not liked, so those links count only when there are no ids.
+  const ids = [...text.matchAll(/"tweetId"\s*:\s*"(\d{1,25})"/g)].map((m) => m[1]);
+  if (ids.length) return [...new Set(ids)].map((id) => `https://x.com/i/web/status/${id}`);
+  const links = text.match(/https?:\/\/(?:www\.|mobile\.)?(?:x|twitter)\.com\/(?:[A-Za-z0-9_]{1,15}|i\/web)\/status(?:es)?\/\d{1,25}/g) || [];
+  return [...new Set(links)];
+}
+
+async function importArchive(input) {
+  const file = input.files?.[0];
+  input.value = '';
+  if (!file) return;
+  toast(t('links.importing', { file: file.name }));
+  try {
+    const links = archiveLinks(await file.text());
+    if (!links.length) {
+      toast(t('links.importNone', { file: file.name }), 'error');
+      return;
+    }
+    toast(t('links.imported', { file: file.name, n: links.length }));
+    let added = 0;
+    let duplicate = 0;
+    // A few thousand at a time keeps each request well under the body limit.
+    for (let i = 0; i < links.length; i += 5000) {
+      const r = await postJSON('/api/links', { urls: [links.slice(i, i + 5000).join('\n')], imported: true });
+      added += r.added || 0;
+      duplicate += r.duplicate || 0;
+    }
+    const said = [];
+    if (added) said.push(t('links.addedNew', { n: added }));
+    if (duplicate) said.push(t('links.addedKnown', { n: duplicate }));
+    toast(said.join(', '));
+    await loadLinks(true);
+    kick();
+  } catch (err) {
+    toast(explain(err), 'error');
+  }
+}
+
+/** The Export menu downloads what the list shows: this search, this filter. */
+function wireExport() {
+  const menu = $('#links-export');
+  const href = (format) => `/api/export?${new URLSearchParams({ format, q: state.list.q, status: state.list.filter })}`;
+  menu.addEventListener('toggle', () => {
+    if (!menu.open) return;
+    // Open towards the side with room: the toolbar wraps on narrow windows.
+    const box = menu.getBoundingClientRect();
+    menu.classList.toggle('end', box.left + 280 > document.documentElement.clientWidth);
+    $('#links-export-csv').href = href('csv');
+    $('#links-export-json').href = href('json');
+  });
+  for (const a of menu.querySelectorAll('a')) a.addEventListener('click', () => { menu.open = false; });
+  document.addEventListener('click', (e) => { if (menu.open && !menu.contains(e.target)) menu.open = false; });
+  menu.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && menu.open) {
+      menu.open = false;
+      menu.querySelector('summary').focus();
+    }
+  });
 }
 
 /* -------------------------------------------------------------- download */

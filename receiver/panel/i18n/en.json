@@ -87,6 +87,19 @@
   "links.addHelp": "Paste links, one per line. Tweet links are cleaned the same way the extension cleans them, and ones already collected are skipped.",
   "links.addSave": "Add to links.txt",
   "links.addCancel": "Close",
+  "links.export": "Export",
+  "links.exportCsv": "CSV, for a spreadsheet",
+  "links.exportJson": "JSON, for a program",
+  "links.exportNote": "The links the list shows now, with their state and files.",
+  "links.import": "From your X archive",
+  "links.importHelp": "In the data archive you can ask X for, data/like.js holds the tweets you liked and data/bookmark.js, where there is one, your bookmarks. Pick either and every tweet in it is added.",
+  "links.importPick": "Choose like.js or bookmark.js",
+  "links.importing": "Reading {file}…",
+  "links.imported": [
+    "{file}: {n} tweet found",
+    "{file}: {n} tweets found"
+  ],
+  "links.importNone": "No tweets were found in {file}.",
   "links.addedNew": [
     "{n} link added",
     "{n} links added"

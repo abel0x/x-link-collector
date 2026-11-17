@@ -70,6 +70,8 @@ jobs:
         run: node --test tests/extension.test.mjs
       - name: English and Turkish in step
         run: node --test tests/i18n.test.mjs
+      - name: panel helpers
+        run: node --test tests/panel.test.mjs
       - name: the pages' scripts parse
         run: |
           node --check extension/options.js

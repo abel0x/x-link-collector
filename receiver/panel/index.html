@@ -113,6 +113,14 @@
     </label>
     <div class="segmented" id="links-filter" role="group" data-t-label="links.filterLabel"></div>
     <button type="button" class="btn" id="links-add-open" aria-expanded="false" aria-controls="links-add" data-t="links.add">Add links</button>
+    <details class="menu" id="links-export">
+      <summary class="btn" data-t="links.export">Export</summary>
+      <div class="menu-items">
+        <a class="menu-item" id="links-export-csv" download data-t="links.exportCsv">CSV, for a spreadsheet</a>
+        <a class="menu-item" id="links-export-json" download data-t="links.exportJson">JSON</a>
+        <p class="menu-note help" data-t="links.exportNote"></p>
+      </div>
+    </details>
   </div>
 
   <form class="add-box" id="links-add" hidden>
@@ -124,6 +132,14 @@
     <div class="row-buttons">
       <button type="submit" class="btn primary" data-t="links.addSave">Add to links.txt</button>
       <button type="button" class="btn" id="links-add-close" data-t="links.addCancel">Close</button>
+    </div>
+    <div class="import">
+      <span class="label" data-t="links.import">From your X archive</span>
+      <span class="help" data-t="links.importHelp"></span>
+      <label class="btn file-pick">
+        <input type="file" id="links-import" accept=".js,.json,.txt" class="visually-hidden">
+        <span data-t="links.importPick">Choose like.js or bookmark.js</span>
+      </label>
     </div>
   </form>
 

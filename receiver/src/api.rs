@@ -24,6 +24,7 @@ pub fn route(req: &Request, app: &App) -> Response {
     match req.path.as_str() {
         "/api/status" if read => status(req, app),
         "/api/links" if read => links(req, app),
+        "/api/export" if read => export(req, app),
         "/api/links" if write => collect(req, app),
         "/api/links/remove" if write => remove(req, app),
         "/api/settings" if read => Response::json(200, &app.settings_view()),
@@ -35,10 +36,9 @@ pub fn route(req: &Request, app: &App) -> Response {
         "/api/open" if write => open(req, app),
         "/api/autostart" if write => autostart(req),
         "/api/quit" if write => quit(app),
-        "/api/status" | "/api/links" | "/api/links/remove" | "/api/settings" | "/api/job"
-        | "/api/job/stop" | "/api/tools" | "/api/open" | "/api/autostart" | "/api/quit" => {
-            error(405, "method not allowed")
-        }
+        "/api/status" | "/api/links" | "/api/export" | "/api/links/remove" | "/api/settings"
+        | "/api/job" | "/api/job/stop" | "/api/tools" | "/api/open" | "/api/autostart"
+        | "/api/quit" => error(405, "method not allowed"),
         _ => error(404, "no such endpoint"),
     }
 }
@@ -114,6 +114,132 @@ fn links(req: &Request, app: &App) -> Response {
     Response::json(200, &page)
 }
 
+/// Every link the Links page would show for this search and filter, oldest
+/// first, as a file to keep: `?format=csv` (the default) or `?format=json`.
+fn export(req: &Request, app: &App) -> Response {
+    let page = app.links_page(
+        &req.param("q").unwrap_or_default(),
+        &req.param("status").unwrap_or_default(),
+        0,
+        usize::MAX,
+    );
+    let mut rows = match page.get("items") {
+        Some(Json::Arr(items)) => items.clone(),
+        _ => Vec::new(),
+    };
+    rows.reverse(); // the page lists the newest first; a file reads in order
+    let day = crate::log::iso8601(crate::history::now() as i64);
+    let day = &day[..10];
+    let (content_type, name, body) = match req.param("format").as_deref() {
+        Some("json") => (
+            "application/json; charset=utf-8",
+            format!("x-link-collector-links-{day}.json"),
+            Json::Arr(rows.iter().map(export_json).collect())
+                .pretty()
+                .into_bytes(),
+        ),
+        None | Some("csv") => (
+            "text/csv; charset=utf-8",
+            format!("x-link-collector-links-{day}.csv"),
+            export_csv(&rows).into_bytes(),
+        ),
+        Some(_) => return error(400, "format is csv or json"),
+    };
+    let mut res = Response::text(200, "");
+    res.content_type = content_type;
+    res.body = std::borrow::Cow::Owned(body);
+    res.extra.push(format!(
+        "Content-Disposition: attachment; filename=\"{name}\""
+    ));
+    res
+}
+
+const EXPORT_COLUMNS: [&str; 8] = [
+    "line",
+    "url",
+    "handle",
+    "tweet_id",
+    "status",
+    "collected_at",
+    "files",
+    "error",
+];
+
+/// One link as it goes into the file: the time as ISO 8601, not seconds.
+fn export_json(row: &Json) -> Json {
+    let field = |k: &str| row.get(k).cloned().unwrap_or(Json::Null);
+    json::obj([
+        ("line", field("line")),
+        ("url", field("url")),
+        ("handle", field("handle")),
+        ("tweet_id", field("id")),
+        ("status", field("status")),
+        (
+            "collected_at",
+            collected(row).map_or(Json::Null, Json::from),
+        ),
+        ("files", field("files")),
+        ("error", field("error")),
+    ])
+}
+
+fn collected(row: &Json) -> Option<String> {
+    row.get("captured")
+        .and_then(Json::as_f64)
+        .map(|secs| crate::log::iso8601(secs as i64))
+}
+
+/// RFC 4180, with a byte-order mark so spreadsheet programs read it as UTF-8.
+fn export_csv(rows: &[Json]) -> String {
+    let mut out = String::from("\u{feff}");
+    out.push_str(&EXPORT_COLUMNS.join(","));
+    out.push_str("\r\n");
+    for row in rows {
+        let text = |k: &str| match row.get(k) {
+            Some(Json::Str(s)) => s.clone(),
+            Some(Json::Num(n)) => format!("{n}"),
+            _ => String::new(),
+        };
+        let files = match row.get("files") {
+            Some(Json::Arr(files)) => files
+                .iter()
+                .filter_map(Json::as_str)
+                .collect::<Vec<_>>()
+                .join(" | "),
+            _ => String::new(),
+        };
+        let cells = [
+            text("line"),
+            text("url"),
+            text("handle"),
+            text("id"),
+            text("status"),
+            collected(row).unwrap_or_default(),
+            files,
+            text("error"),
+        ];
+        let cells: Vec<String> = cells.iter().map(|c| csv_cell(c)).collect();
+        out.push_str(&cells.join(","));
+        out.push_str("\r\n");
+    }
+    out
+}
+
+/// Quoted when it must be, and never read as a formula: a spreadsheet would
+/// run a cell that starts with = + - or @.
+fn csv_cell(value: &str) -> String {
+    let value = if value.starts_with(['=', '+', '-', '@', '\t', '\r']) {
+        format!("'{value}")
+    } else {
+        value.to_string()
+    };
+    if value.contains([',', '"', '\n', '\r']) {
+        format!("\"{}\"", value.replace('"', "\"\""))
+    } else {
+        value
+    }
+}
+
 /// `POST /` from the extension (text/plain or JSON), and `POST /api/links`
 /// from the panel's "add links" box.
 pub fn collect(req: &Request, app: &App) -> Response {
@@ -129,9 +255,13 @@ pub fn collect(req: &Request, app: &App) -> Response {
         .to_ascii_lowercase();
     let looks_json = content_type.contains("json") || trimmed.starts_with(['{', '[', '"']);
 
+    // Links read from an X archive were collected long ago, on no known day:
+    // they go into the file, but not into the per-day history.
+    let mut imported = false;
     let candidates: Vec<String> = if looks_json {
         match json::parse(trimmed) {
             Ok(value) => {
+                imported = value.get("imported").and_then(Json::as_bool) == Some(true);
                 let mut out = Vec::new();
                 json::collect_urls(&value, &mut out);
                 // The panel's box sends whatever was pasted as one string;
@@ -178,7 +308,9 @@ pub fn collect(req: &Request, app: &App) -> Response {
     for (link, new) in clean.iter().zip(written) {
         if new {
             added += 1;
-            app.captured(link);
+            if !imported {
+                app.captured(link);
+            }
             if one_by_one {
                 log!("+ {link}");
             }
@@ -190,7 +322,12 @@ pub fn collect(req: &Request, app: &App) -> Response {
         }
     }
     if !one_by_one {
-        log!("+ {added} link(s) from a pasted list, {duplicate} already collected");
+        let from = if imported {
+            "an X archive"
+        } else {
+            "a pasted list"
+        };
+        log!("+ {added} link(s) from {from}, {duplicate} already collected");
     }
 
     if added == 0 && duplicate == 0 {
@@ -324,4 +461,45 @@ fn quit(app: &App) -> Response {
 fn preview(s: &str) -> String {
     let cleaned: String = s.chars().filter(|c| !c.is_control()).take(80).collect();
     format!("{cleaned:?}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn csv_cells_are_quoted_and_never_formulas() {
+        assert_eq!(csv_cell("plain"), "plain");
+        assert_eq!(csv_cell("a,b"), "\"a,b\"");
+        assert_eq!(csv_cell("say \"hi\""), "\"say \"\"hi\"\"\"");
+        assert_eq!(csv_cell("=HYPERLINK(1)"), "'=HYPERLINK(1)");
+        assert_eq!(csv_cell("-1"), "'-1");
+    }
+
+    #[test]
+    fn csv_rows_follow_the_header() {
+        let row = json::obj([
+            ("line", 3.into()),
+            ("url", "https://x.com/a/status/1".into()),
+            ("id", "1".into()),
+            ("handle", "a".into()),
+            ("captured", Json::Num(0.0)),
+            ("status", "done".into()),
+            (
+                "files",
+                vec![Json::from("a/1-1.mp4"), Json::from("a/1-2.jpg")].into(),
+            ),
+            ("error", "".into()),
+        ]);
+        let csv = export_csv(&[row]);
+        let lines: Vec<&str> = csv.split("\r\n").collect();
+        assert_eq!(
+            lines[0],
+            "\u{feff}line,url,handle,tweet_id,status,collected_at,files,error"
+        );
+        assert_eq!(
+            lines[1],
+            "3,https://x.com/a/status/1,a,1,done,1970-01-01T00:00:00Z,a/1-1.mp4 | a/1-2.jpg,"
+        );
+    }
 }
