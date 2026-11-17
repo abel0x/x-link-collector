@@ -25,6 +25,7 @@ pub fn route(req: &Request, app: &App) -> Response {
         "/api/status" if read => status(req, app),
         "/api/links" if read => links(req, app),
         "/api/export" if read => export(req, app),
+        "/api/gallery" if read => gallery(req, app),
         "/api/links" if write => collect(req, app),
         "/api/links/remove" if write => remove(req, app),
         "/api/settings" if read => Response::json(200, &app.settings_view()),
@@ -36,9 +37,9 @@ pub fn route(req: &Request, app: &App) -> Response {
         "/api/open" if write => open(req, app),
         "/api/autostart" if write => autostart(req),
         "/api/quit" if write => quit(app),
-        "/api/status" | "/api/links" | "/api/export" | "/api/links/remove" | "/api/settings"
-        | "/api/job" | "/api/job/stop" | "/api/tools" | "/api/open" | "/api/autostart"
-        | "/api/quit" => error(405, "method not allowed"),
+        "/api/status" | "/api/links" | "/api/export" | "/api/gallery" | "/api/links/remove"
+        | "/api/settings" | "/api/job" | "/api/job/stop" | "/api/tools" | "/api/open"
+        | "/api/autostart" | "/api/quit" => error(405, "method not allowed"),
         _ => error(404, "no such endpoint"),
     }
 }
@@ -112,6 +113,25 @@ fn links(req: &Request, app: &App) -> Response {
         number("limit", 50).clamp(1, 500),
     );
     Response::json(200, &page)
+}
+
+/// The media folder's photos and videos, newest first, for the Gallery page.
+fn gallery(req: &Request, app: &App) -> Response {
+    let number = |name: &str, default: usize| {
+        req.param(name)
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(default)
+    };
+    Response::json(
+        200,
+        &crate::media::gallery(
+            &app.media_dir(),
+            &req.param("handle").unwrap_or_default(),
+            &req.param("kind").unwrap_or_default(),
+            number("offset", 0),
+            number("limit", 60).clamp(1, 500),
+        ),
+    )
 }
 
 /// Every link the Links page would show for this search and filter, oldest

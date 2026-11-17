@@ -33,6 +33,7 @@
   <nav class="tabs" aria-label="Sections">
     <a href="#overview" data-view="overview" data-t="nav.overview">Overview</a>
     <a href="#links" data-view="links" data-t="nav.links">Links</a>
+    <a href="#gallery" data-view="gallery" data-t="nav.gallery">Gallery</a>
     <a href="#download" data-view="download" data-t="nav.download">Download</a>
     <a href="#folder" data-view="folder" data-t="nav.folder">Folder</a>
     <a href="#settings" data-view="settings" data-t="nav.settings">Settings</a>
@@ -147,6 +148,27 @@
   <ol class="list" id="links-list"></ol>
   <p class="list-empty" id="links-empty" hidden></p>
   <button type="button" class="btn more" id="links-more" hidden></button>
+</section>
+
+<!-- ================================================================= gallery -->
+<section class="view" id="view-gallery" aria-labelledby="ga-title" hidden>
+  <div class="page-head">
+    <h1 id="ga-title" tabindex="-1" data-t="ga.title">Gallery</h1>
+    <p class="page-lead" data-t="ga.lead"></p>
+  </div>
+
+  <div class="toolbar">
+    <div class="segmented" id="ga-kind" role="group" data-t-label="ga.kindLabel"></div>
+    <label class="ga-account">
+      <span class="visually-hidden" data-t="ga.account">Account</span>
+      <select class="input" id="ga-handle"></select>
+    </label>
+  </div>
+
+  <p class="list-meta" id="ga-meta" aria-live="polite"></p>
+  <ul class="gallery" id="ga-grid"></ul>
+  <p class="list-empty" id="ga-empty" hidden></p>
+  <button type="button" class="btn more" id="ga-more" hidden data-t="links.more">Show more</button>
 </section>
 
 <!-- ================================================================ download -->

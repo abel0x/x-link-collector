@@ -994,7 +994,7 @@ fn is_gone(link: &str, ids: &HashSet<String>) -> bool {
 
 /// The tweet id in a media file's name, as x-download and x-flatten write
 /// them: `<id>-<n>.<ext>`, `<handle>-<id>-<n>.<ext>`, `<id>-<n>~2.<ext>`.
-fn media_tweet_id(name: &str) -> Option<&str> {
+pub(crate) fn media_tweet_id(name: &str) -> Option<&str> {
     let (stem, ext) = name.rsplit_once('.')?;
     if !(1..=5).contains(&ext.len()) || !ext.bytes().all(|b| b.is_ascii_alphanumeric()) {
         return None;

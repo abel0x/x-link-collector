@@ -243,7 +243,7 @@ function stateChip(status) {
 
 /* ----------------------------------------------------------------- state */
 
-const VIEWS = ['overview', 'links', 'download', 'folder', 'settings'];
+const VIEWS = ['overview', 'links', 'gallery', 'download', 'folder', 'settings'];
 const ACTIVE = ['running', 'stopping'];
 
 const state = {
@@ -360,6 +360,7 @@ function jobEnded(job, before, after) {
     loadTools(true);
   }
   if (state.view === 'links') loadLinks(true);
+  if (state.view === 'gallery') loadGallery(true);
   state.latestSig = '';
   kick();
 }
@@ -497,6 +498,9 @@ function renderView() {
     case 'links':
       renderFilters();
       loadLinks(true);
+      break;
+    case 'gallery':
+      loadGallery(true);
       break;
     case 'download':
       renderDownload();
@@ -1038,6 +1042,83 @@ function thumb(item) {
   }
   if (files.length > 1) button.append(h('span', { class: 'more', text: `+${files.length - 1}` }));
   return button;
+}
+
+/* ---------------------------------------------------------------- gallery */
+
+const gallery = { kind: '', handle: '', items: [], matched: 0, total: 0, handles: [], busy: false };
+const KINDS = ['', 'video', 'image'];
+
+async function loadGallery(reset) {
+  if (gallery.busy) return;
+  gallery.busy = true;
+  try {
+    const query = new URLSearchParams({ kind: gallery.kind, handle: gallery.handle, offset: reset ? 0 : gallery.items.length, limit: 60 });
+    const page = await getJSON(`/api/gallery?${query}`);
+    gallery.items = reset ? page.items : gallery.items.concat(page.items);
+    Object.assign(gallery, { matched: page.matched, total: page.total, handles: page.handles });
+    renderGallery(reset);
+  } catch (e) {
+    toast(explain(e), 'error');
+  } finally {
+    gallery.busy = false;
+  }
+}
+
+function renderGallery(reset) {
+  $('#ga-kind').replaceChildren(...KINDS.map((kind) => h('button', {
+    type: 'button',
+    'aria-pressed': String(gallery.kind === kind),
+    text: t(kind ? `ga.kind.${kind}` : 'links.all'),
+    onclick: () => {
+      gallery.kind = kind;
+      loadGallery(true);
+    },
+  })));
+  const select = $('#ga-handle');
+  select.replaceChildren(
+    h('option', { value: '', text: t('ga.everyone', { n: gallery.total }) }),
+    ...gallery.handles.map((a) => h('option', { value: a.handle, text: `${a.handle ? `@${a.handle}` : t('ga.loose')} (${num(a.count)})` })));
+  select.value = gallery.handle;
+
+  $('#ga-meta').textContent = gallery.matched ? t('links.shown', { shown: gallery.items.length, matched: gallery.matched }) : '';
+  const grid = $('#ga-grid');
+  const tiles = (reset ? gallery.items : gallery.items.slice(grid.children.length)).map(galleryTile);
+  if (reset) grid.replaceChildren(...tiles);
+  else grid.append(...tiles);
+  const empty = !gallery.items.length;
+  $('#ga-empty').hidden = !empty;
+  $('#ga-empty').textContent = gallery.total ? t('links.noMatch') : t('ga.empty');
+  $('#ga-more').hidden = gallery.items.length >= gallery.matched;
+}
+
+function galleryTile(file) {
+  const item = { id: file.id, handle: file.handle, url: file.id ? `https://x.com/${file.handle || 'i/web'}/status/${file.id}` : '' };
+  // The viewer steps through this tweet's files, as it does from the Links page.
+  const open = () => {
+    const files = gallery.items.filter((f) => f.id && f.id === file.id).map((f) => f.path);
+    const list = files.length ? files : [file.path];
+    openViewer(item, list, Math.max(0, list.indexOf(file.path)));
+  };
+  const button = h('button', { type: 'button', class: 'tile', 'aria-label': `${t('links.show')}: ${who(item)}`, onclick: open });
+  if (file.kind === 'image') {
+    button.append(h('img', { src: mediaUrl(file.path), alt: '', loading: 'lazy', decoding: 'async' }));
+  } else {
+    const video = h('video', { muted: true, preload: 'metadata', playsinline: true, 'aria-hidden': 'true', 'data-src': `${mediaUrl(file.path)}#t=0.5` });
+    if (lazyVideos) lazyVideos.observe(video);
+    else video.src = video.dataset.src;
+    button.append(video, icon('play'));
+  }
+  button.append(h('span', { class: 'tile-who', text: who(item) }));
+  return h('li', {}, button);
+}
+
+function wireGallery() {
+  $('#ga-handle').addEventListener('change', (e) => {
+    gallery.handle = e.target.value;
+    loadGallery(true);
+  });
+  $('#ga-more').addEventListener('click', () => loadGallery(false));
 }
 
 /* ----------------------------------------------------------------- viewer */
@@ -1835,6 +1916,7 @@ function start() {
   wireFolder();
   wireSettings();
   wireViewer();
+  wireGallery();
 
   route();
   loadSettings();

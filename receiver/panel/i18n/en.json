@@ -2,6 +2,7 @@
   "skip": "Skip to content",
   "nav.overview": "Overview",
   "nav.links": "Links",
+  "nav.gallery": "Gallery",
   "nav.download": "Download",
   "nav.folder": "Folder",
   "nav.settings": "Settings",
@@ -100,6 +101,15 @@
     "{file}: {n} tweets found"
   ],
   "links.importNone": "No tweets were found in {file}.",
+  "ga.title": "Gallery",
+  "ga.lead": "Every photo and video in the media folder, newest first.",
+  "ga.kindLabel": "Show",
+  "ga.kind.video": "Videos",
+  "ga.kind.image": "Photos",
+  "ga.account": "Account",
+  "ga.everyone": "Every account ({n})",
+  "ga.loose": "Not in an account folder",
+  "ga.empty": "Nothing downloaded yet. Photos and videos show up here once a download has run.",
   "links.addedNew": [
     "{n} link added",
     "{n} links added"

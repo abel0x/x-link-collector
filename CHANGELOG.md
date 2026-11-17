@@ -4,6 +4,10 @@
 
 ### Added
 
+- **Gallery:** a page of every photo and video in the media folder, newest
+  first, as a grid. Show only videos or only photos, or one account (each
+  with how many it has); click one to open it in the viewer, which steps
+  through that tweet's files.
 - **Export:** the Links page's Export menu saves what the list shows, with its
   search and filter, as CSV for a spreadsheet or JSON for a program: line,
   link, account, tweet id, state, when it was collected, its files and why it

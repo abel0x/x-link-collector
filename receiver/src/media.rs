@@ -9,11 +9,15 @@
 //! into memory. Other sites cannot embed these: a request a page elsewhere
 //! starts is refused, and the response says it is for this origin only.
 
-use std::fs::File;
+use std::collections::BTreeMap;
+use std::fs::{self, File};
 use std::io::{Seek, SeekFrom};
-use std::path::{Component, Path};
+use std::path::{Component, Path, PathBuf};
+use std::time::UNIX_EPOCH;
 
+use crate::app::media_tweet_id;
 use crate::http::{self, Request, Response};
+use crate::json::{self, Json};
 
 pub fn serve(req: &Request, root: &Path) -> Response {
     // A cross-site <img> or <video> sends no Origin, but browsers do say where
@@ -79,7 +83,7 @@ fn open(root: &Path, rel: &str) -> Option<(File, &'static str)> {
     Some((File::open(path).ok()?, content_type))
 }
 
-fn media_type(path: &Path) -> Option<&'static str> {
+pub(crate) fn media_type(path: &Path) -> Option<&'static str> {
     let ext = path.extension()?.to_string_lossy().to_ascii_lowercase();
     Some(match ext.as_str() {
         "mp4" => "video/mp4",
@@ -180,5 +184,204 @@ mod tests {
             assert!(open(&root, "alice/2-1.jpg").is_none());
         }
         fs::remove_dir_all(root.parent().unwrap()).unwrap();
+    }
+}
+
+/// One photo or video in the media folder, for the gallery.
+struct Item {
+    /// Relative to the media folder, with `/`: what `/media/` serves.
+    path: String,
+    handle: String,
+    id: Option<String>,
+    video: bool,
+    modified: u64,
+}
+
+/// Every photo and video under `root`, newest first, a page at a time, and
+/// how many each account has. `handle` and `kind` ("video", "image") narrow
+/// the page; the account counts always cover the whole folder.
+pub fn gallery(root: &Path, handle: &str, kind: &str, offset: usize, limit: usize) -> Json {
+    let mut items = Vec::new();
+    collect(root, &mut Vec::new(), &mut items);
+    newest_first(&mut items);
+
+    let mut handles: BTreeMap<String, usize> = BTreeMap::new();
+    for item in &items {
+        *handles.entry(item.handle.clone()).or_default() += 1;
+    }
+    let wanted: Vec<&Item> = items
+        .iter()
+        .filter(|i| handle.is_empty() || i.handle == handle)
+        .filter(|i| match kind {
+            "video" => i.video,
+            "image" => !i.video,
+            _ => true,
+        })
+        .collect();
+    let page: Vec<Json> = wanted
+        .iter()
+        .skip(offset)
+        .take(limit)
+        .map(|i| {
+            json::obj([
+                ("path", i.path.as_str().into()),
+                ("handle", i.handle.as_str().into()),
+                ("id", i.id.clone().into()),
+                ("kind", if i.video { "video" } else { "image" }.into()),
+            ])
+        })
+        .collect();
+    let mut by_count: Vec<(String, usize)> = handles.into_iter().collect();
+    by_count.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    json::obj([
+        ("total", items.len().into()),
+        ("matched", wanted.len().into()),
+        (
+            "handles",
+            Json::Arr(
+                by_count
+                    .into_iter()
+                    .map(|(h, n)| json::obj([("handle", h.into()), ("count", n.into())]))
+                    .collect(),
+            ),
+        ),
+        ("items", Json::Arr(page)),
+    ])
+}
+
+fn newest_first(items: &mut [Item]) {
+    items.sort_by(|a, b| {
+        b.modified
+            .cmp(&a.modified)
+            .then_with(|| a.path.cmp(&b.path))
+    });
+}
+
+/// Walk the folder the way the media server would allow: no hidden names,
+/// no half-finished downloads, a few levels deep, symlinks not followed.
+fn collect(dir: &Path, rel: &mut Vec<String>, out: &mut Vec<Item>) {
+    if rel.len() > 4 {
+        return;
+    }
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.starts_with('.') || name.ends_with(".part") {
+            continue;
+        }
+        let Ok(kind) = entry.file_type() else {
+            continue;
+        };
+        if kind.is_dir() {
+            rel.push(name);
+            collect(&entry.path(), rel, out);
+            rel.pop();
+        } else if kind.is_file() {
+            let Some(content_type) = media_type(&PathBuf::from(&name)) else {
+                continue;
+            };
+            let modified = entry
+                .metadata()
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                .map_or(0, |d| d.as_secs());
+            let mut parts = rel.clone();
+            parts.push(name.clone());
+            out.push(Item {
+                path: parts.join("/"),
+                // x-download files a tweet's media under the account's folder.
+                handle: rel.first().cloned().unwrap_or_default(),
+                id: media_tweet_id(&name).map(str::to_string),
+                video: content_type.starts_with("video/"),
+                modified,
+            });
+        }
+    }
+}
+
+#[cfg(test)]
+mod gallery_tests {
+    use super::*;
+    use std::time::SystemTime;
+
+    fn temp_dir() -> PathBuf {
+        let n = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("x-link-gallery-{n}"))
+    }
+
+    fn touch(root: &Path, rel: &str) {
+        let path = root.join(rel);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        File::create(&path).unwrap();
+    }
+
+    fn paths(page: &Json) -> Vec<String> {
+        match page.get("items") {
+            Some(Json::Arr(items)) => items
+                .iter()
+                .filter_map(|i| i.get("path").and_then(Json::as_str))
+                .map(str::to_string)
+                .collect(),
+            _ => vec![],
+        }
+    }
+
+    #[test]
+    fn photos_and_videos_by_account_and_kind() {
+        let root = temp_dir();
+        touch(&root, "alice/100-1.mp4");
+        touch(&root, "alice/100-2.jpg");
+        touch(&root, "bob/200-1.jpg");
+        touch(&root, "bob/.x-state.json");
+        touch(&root, "bob/300-1.mp4.part");
+        touch(&root, "notes.txt");
+
+        let all = gallery(&root, "", "", 0, 10);
+        let mut found = paths(&all);
+        found.sort();
+        assert_eq!(
+            found,
+            ["alice/100-1.mp4", "alice/100-2.jpg", "bob/200-1.jpg"]
+        );
+        assert_eq!(all.get("total"), Some(&Json::from(3usize)));
+        assert_eq!(
+            all.get("handles").cloned(),
+            Some(Json::Arr(vec![
+                json::obj([("handle", "alice".into()), ("count", 2usize.into())]),
+                json::obj([("handle", "bob".into()), ("count", 1usize.into())]),
+            ]))
+        );
+
+        let videos = gallery(&root, "alice", "video", 0, 10);
+        assert_eq!(paths(&videos), ["alice/100-1.mp4"]);
+        let first = match videos.get("items") {
+            Some(Json::Arr(items)) => items[0].clone(),
+            _ => Json::Null,
+        };
+        assert_eq!(first.get("id").and_then(Json::as_str), Some("100"));
+        assert_eq!(first.get("kind").and_then(Json::as_str), Some("video"));
+        assert_eq!(paths(&gallery(&root, "", "image", 1, 1)).len(), 1);
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn newest_first_then_by_path() {
+        let item = |path: &str, modified: u64| Item {
+            path: path.to_string(),
+            handle: String::new(),
+            id: None,
+            video: false,
+            modified,
+        };
+        let mut items = vec![item("b", 1), item("c", 5), item("a", 5)];
+        newest_first(&mut items);
+        let order: Vec<&str> = items.iter().map(|i| i.path.as_str()).collect();
+        assert_eq!(order, ["a", "c", "b"]);
     }
 }
