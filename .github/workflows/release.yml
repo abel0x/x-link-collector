@@ -7,8 +7,9 @@ on:
     tags: ["v*"]
   workflow_dispatch:
 
+# Read-only by default; only the job that creates the release may write.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   archives:
@@ -26,8 +27,10 @@ jobs:
           - { os: windows-latest, target: x86_64-pc-windows-msvc,    label: windows-x86_64, ext: ".exe" }
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      # Third-party actions are pinned to a commit, not a movable tag.
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
+          toolchain: stable
           targets: ${{ matrix.target }}
       - name: musl toolchain
         if: endsWith(matrix.target, '-musl')
@@ -96,7 +99,7 @@ jobs:
             echo "no AMO credentials; the Firefox add-on is left unsigned"
             exit 0
           fi
-          npx --yes web-ext@8 sign --source-dir extension --artifacts-dir signed \
+          npx --yes web-ext@8.10.0 sign --source-dir extension --artifacts-dir signed \
             --channel unlisted --api-key "$AMO_JWT_ISSUER" --api-secret "$AMO_JWT_SECRET"
           cp signed/*.xpi x-link-collector-firefox.xpi
           shasum -a 256 x-link-collector-firefox.xpi > x-link-collector-firefox.xpi.sha256
@@ -114,6 +117,8 @@ jobs:
     name: publish release
     needs: [archives, extension]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       # The release text is this version's section of CHANGELOG.md.
@@ -130,7 +135,7 @@ jobs:
         with:
           path: artifacts
           merge-multiple: true
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           files: artifacts/*
           body_path: notes.md
