@@ -67,6 +67,45 @@ impl History {
         f.write_all(format!("{ts}\t{link}\n").as_bytes())
     }
 
+    /// Every capture in the log, as written: (unix seconds, link).
+    pub fn entries(&self) -> Vec<(u64, String)> {
+        let text = fs::read_to_string(&self.path).unwrap_or_default();
+        text.lines()
+            .filter_map(|line| {
+                let (ts, link) = line.split_once('\t')?;
+                Some((ts.trim().parse().ok()?, link.trim().to_string()))
+            })
+            .collect()
+    }
+
+    /// Take in captures from elsewhere (a backup): only for links this log
+    /// has no time for yet, each with the time it came with.
+    pub fn merge(&mut self, items: &[(u64, String)]) -> io::Result<usize> {
+        let fresh: Vec<&(u64, String)> = items
+            .iter()
+            .filter(|(_, link)| self.captured(link).is_none())
+            .collect();
+        if fresh.is_empty() {
+            return Ok(0);
+        }
+        if let Some(dir) = self.path.parent() {
+            fs::create_dir_all(dir)?;
+        }
+        let mut out = String::new();
+        for (ts, link) in &fresh {
+            if self.captured(link).is_none() {
+                self.note(*ts, link);
+                out.push_str(&format!("{ts}\t{link}\n"));
+            }
+        }
+        let mut f = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.path)?;
+        f.write_all(out.as_bytes())?;
+        Ok(out.lines().count())
+    }
+
     pub fn captured(&self, link: &str) -> Option<u64> {
         self.first.get(&url::dedupe_key(link)).copied()
     }
@@ -120,6 +159,27 @@ mod tests {
         let at = again.captured("https://twitter.com/zz/status/1").unwrap();
         assert!(now() - at < 60);
         assert_eq!(again.daily(7, 0), [0, 0, 0, 0, 0, 0, 2]);
+        fs::remove_dir_all(p.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn merges_only_what_it_has_no_time_for() {
+        let p = temp_file("merge");
+        let mut h = History::open(p.clone());
+        h.record("https://x.com/a/status/1").unwrap();
+        let mine = h.captured("https://x.com/a/status/1").unwrap();
+        let taken = h
+            .merge(&[
+                (100, "https://x.com/other/status/1".to_string()),
+                (200, "https://x.com/b/status/2".to_string()),
+                (300, "https://x.com/b/status/2".to_string()),
+            ])
+            .unwrap();
+        assert_eq!(taken, 1);
+        let again = History::open(p.clone());
+        assert_eq!(again.captured("https://x.com/a/status/1"), Some(mine));
+        assert_eq!(again.captured("https://x.com/b/status/2"), Some(200));
+        assert_eq!(again.entries().len(), 2);
         fs::remove_dir_all(p.parent().unwrap()).unwrap();
     }
 

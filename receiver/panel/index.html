@@ -300,6 +300,19 @@
     <div class="job-slot" data-slot="settings"></div>
   </section>
 
+  <section class="block" aria-labelledby="st-backup-title">
+    <h2 id="st-backup-title" data-t="st.backup">Backup</h2>
+    <p class="help wide" data-t="st.backupHelp"></p>
+    <div class="row-buttons">
+      <a class="btn" id="backup-save" href="/api/backup" download data-t="st.backupSave">Save a backup</a>
+      <label class="btn file-pick">
+        <input type="file" id="backup-file" accept=".json,application/json" class="visually-hidden">
+        <span data-t="st.restore">Restore from a backup</span>
+      </label>
+    </div>
+    <label class="check"><input type="checkbox" id="backup-settings"><span data-t="st.restoreSettings">Also take its settings</span></label>
+  </section>
+
   <section class="block" aria-labelledby="st-about-title">
     <h2 id="st-about-title" data-t="st.about">About</h2>
     <dl class="facts" id="about-facts"></dl>

@@ -214,7 +214,14 @@ fn handle_connection(mut stream: TcpStream, app: &App) {
     let _ = stream.set_write_timeout(Some(IO_TIMEOUT));
     let _ = stream.set_nodelay(true);
 
-    let req = match http::read_request(&mut stream, config::MAX_BODY) {
+    let limit = |path: &str| {
+        if path == "/api/restore" {
+            config::MAX_RESTORE
+        } else {
+            config::MAX_BODY
+        }
+    };
+    let req = match http::read_request(&mut stream, limit) {
         Ok(req) => req,
         Err(e) => {
             elog!("bad request: {}", e.detail);

@@ -124,7 +124,7 @@ there is nothing else to install, and it loads nothing from anywhere else.
 | **Gallery** | Every photo and video in the media folder, newest first, in a grid: only videos or only photos, one account at a time, and the same viewer as Links. |
 | **Download** | Start, follow and stop a download, with the choices `x-download` has: mirrors, your own login, parallel downloads, a limit, a dry run. Or let new links download by themselves. Download again, on purpose, what you already have. |
 | **Folder** | What is on disk, and the one-folder [flatten](docs/flatten.md) — with undo. |
-| **Settings** | Where links and media go, and the rest. Also installs or updates yt-dlp and gallery-dl, and says so when they have grown old enough to break. |
+| **Settings** | Where links and media go, and the rest. Also installs or updates yt-dlp and gallery-dl, and says so when they have grown old enough to break. Saves the whole collection to one backup file, and folds one back in on another machine. |
 
 It speaks English and Turkish, follows your system's light or dark theme, and fits
 a phone-sized window. Allow notifications and it tells you when a download

@@ -1830,7 +1830,47 @@ async function saveSettings() {
   }
 }
 
+/** Fold a backup file into this collection, after saying what is in it. */
+async function restoreBackup(input) {
+  const file = input.files?.[0];
+  input.value = '';
+  if (!file) return;
+  let backup;
+  try {
+    backup = JSON.parse(await file.text());
+  } catch {
+    backup = null;
+  }
+  if (!backup || backup.format !== 'x-link-collector-backup') {
+    toast(t('err.not_backup'), 'error');
+    return;
+  }
+  const made = Date.parse(backup.made);
+  const sure = await confirmAction({
+    title: t('st.restoreTitle'),
+    body: t('st.restoreBody', {
+      file: file.name,
+      made: Number.isNaN(made) ? '?' : fmt.date.format(made),
+      n: (backup.links || []).length,
+    }),
+    action: t('st.restoreDo'),
+  });
+  if (!sure) return;
+  try {
+    const r = await postJSON('/api/restore', { backup, settings: $('#backup-settings').checked });
+    toast(t('st.restored', { links: r.links || 0, downloads: r.downloads || 0, captured: r.captured || 0 }));
+    if (r.settings) {
+      toast(t('st.restoredSettings'));
+      await loadSettings();
+    }
+    kick();
+  } catch (e) {
+    toast(explain(e), 'error');
+  }
+}
+
 function wireSettings() {
+  $('#backup-file').addEventListener('change', (e) => restoreBackup(e.target));
   $('#save-go').addEventListener('click', saveSettings);
   $('#save-discard').addEventListener('click', () => {
     state.draft = {};

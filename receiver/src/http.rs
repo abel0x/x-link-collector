@@ -64,7 +64,12 @@ impl From<io::Error> for RequestError {
     }
 }
 
-pub fn read_request(stream: &mut TcpStream, max_body: usize) -> Result<Request, RequestError> {
+/// `max_body` gives the largest body accepted for a path: a capture is a line,
+/// a restored backup can be a whole collection.
+pub fn read_request(
+    stream: &mut TcpStream,
+    max_body: impl Fn(&str) -> usize,
+) -> Result<Request, RequestError> {
     let mut buf: Vec<u8> = Vec::with_capacity(READ_CHUNK);
     let mut chunk = [0u8; READ_CHUNK];
     let mut searched = 0usize;
@@ -139,6 +144,7 @@ pub fn read_request(stream: &mut TcpStream, max_body: usize) -> Result<Request, 
             .parse::<usize>()
             .map_err(|_| RequestError::new(400, "invalid Content-Length"))?,
     };
+    let max_body = max_body(&req.path);
     if len > max_body {
         return Err(RequestError::new(
             413,

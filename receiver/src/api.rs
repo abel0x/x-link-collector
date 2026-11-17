@@ -26,6 +26,8 @@ pub fn route(req: &Request, app: &App) -> Response {
         "/api/links" if read => links(req, app),
         "/api/export" if read => export(req, app),
         "/api/gallery" if read => gallery(req, app),
+        "/api/backup" if read => backup(app),
+        "/api/restore" if write => restore(req, app),
         "/api/links" if write => collect(req, app),
         "/api/links/remove" if write => remove(req, app),
         "/api/settings" if read => Response::json(200, &app.settings_view()),
@@ -37,9 +39,11 @@ pub fn route(req: &Request, app: &App) -> Response {
         "/api/open" if write => open(req, app),
         "/api/autostart" if write => autostart(req),
         "/api/quit" if write => quit(app),
-        "/api/status" | "/api/links" | "/api/export" | "/api/gallery" | "/api/links/remove"
-        | "/api/settings" | "/api/job" | "/api/job/stop" | "/api/tools" | "/api/open"
-        | "/api/autostart" | "/api/quit" => error(405, "method not allowed"),
+        "/api/status" | "/api/links" | "/api/export" | "/api/gallery" | "/api/backup"
+        | "/api/restore" | "/api/links/remove" | "/api/settings" | "/api/job" | "/api/job/stop"
+        | "/api/tools" | "/api/open" | "/api/autostart" | "/api/quit" => {
+            error(405, "method not allowed")
+        }
         _ => error(404, "no such endpoint"),
     }
 }
@@ -113,6 +117,42 @@ fn links(req: &Request, app: &App) -> Response {
         number("limit", 50).clamp(1, 500),
     );
     Response::json(200, &page)
+}
+
+/// The whole collection as one file to keep: links, capture times, the
+/// download history and the settings.
+fn backup(app: &App) -> Response {
+    let day = crate::log::iso8601(crate::history::now() as i64);
+    let mut res = Response::json(200, &Json::Null);
+    res.body = std::borrow::Cow::Owned(app.backup().pretty().into_bytes());
+    res.extra.push(format!(
+        "Content-Disposition: attachment; filename=\"x-link-collector-backup-{}.json\"",
+        &day[..10]
+    ));
+    res
+}
+
+/// `{"backup": {...}, "settings": true|false}`: fold a backup in.
+fn restore(req: &Request, app: &App) -> Response {
+    let body = match body(req) {
+        Ok(body) => body,
+        Err(res) => return res,
+    };
+    let Some(backup) = body.get("backup") else {
+        return error(400, r#"send {"backup": {...}, "settings": false}"#);
+    };
+    let settings = body.get("settings").and_then(Json::as_bool) == Some(true);
+    match app.restore(backup, settings) {
+        Ok(done) => {
+            let mut fields = vec![];
+            if let Json::Obj(items) = done {
+                fields = items;
+            }
+            ok(fields)
+        }
+        Err(e) if e.code == "busy" => refused(409, &e),
+        Err(e) => refused(400, &e),
+    }
 }
 
 /// The media folder's photos and videos, newest first, for the Gallery page.

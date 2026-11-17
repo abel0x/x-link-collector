@@ -161,6 +161,17 @@ def run(binary: Path, work: Path) -> None:
         check(s["downloads"]["done"] == 2 and s["downloads"]["pending"] == 1,
               "and counts as downloaded, the rest as before")
 
+        status, headers, raw = r.get("/api/backup")
+        backup = json.loads(raw)
+        check(status == 200 and backup["format"] == "x-link-collector-backup"
+              and len(backup["links"]) == 3 and "attachment" in headers.get("Content-Disposition", ""),
+              "a backup holds the collection")
+        status, done = r.api("/api/restore", {"backup": backup, "settings": False})
+        check(status == 200 and done["links"] == 0 and done["downloads"] == 0,
+              "restoring it over itself changes nothing")
+        status, _ = r.api("/api/restore", {"backup": {"format": "other"}})
+        check(status == 400, "and a stray JSON file is not taken for one")
+
         status, view = r.api("/api/settings", {"jobs": 2})
         check(status == 200 and json.loads(r.config.read_text())["jobs"] == 2, "settings are saved")
 

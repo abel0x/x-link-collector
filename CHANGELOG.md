@@ -4,6 +4,12 @@
 
 ### Added
 
+- **Backup and restore.** Settings → Backup saves one file with the links,
+  when each was collected, the download history and the settings
+  (`/api/backup`). Restoring it, on this machine or another, adds what is
+  missing and keeps what is there: links it lacks, collection times it has
+  none for, downloads it does not have as done. The settings are taken only
+  when asked. Photos and videos are not in it.
 - **Mark a list as already downloaded.** When the download history is lost
   but the media is not, a `links.txt` (or any list of links) can say which
   links are done: tick *They are already downloaded* in Add links, then paste

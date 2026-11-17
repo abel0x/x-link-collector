@@ -51,6 +51,8 @@ const MAX_ATTEMPTS: f64 = 3.0;
 const EXTENSION_SEEN: &str = "extension-seen";
 /// The version the extension last gave, next to the settings.
 const EXTENSION_VERSION: &str = "extension-version";
+/// What a backup file says it is, so a stray JSON file is not taken for one.
+const BACKUP_FORMAT: &str = "x-link-collector-backup";
 /// The panel's key, next to the settings: see `panel_key`.
 const PANEL_KEY: &str = "panel-key";
 const MANIFEST: &str = ".x-flatten-manifest.json";
@@ -826,6 +828,164 @@ impl App {
         ])
     }
 
+    /// Everything that makes this collection: the links, when each was
+    /// collected, what was downloaded, and the settings. One JSON document,
+    /// for GET /api/backup.
+    pub fn backup(&self) -> Json {
+        let links: Vec<Json> = self
+            .store()
+            .links()
+            .unwrap_or_default()
+            .into_iter()
+            .map(Json::from)
+            .collect();
+        let captured: Vec<Json> = self
+            .history()
+            .entries()
+            .into_iter()
+            .map(|(ts, link)| Json::Arr(vec![ts.into(), link.into()]))
+            .collect();
+        let downloads = fs::read_to_string(self.history_file())
+            .ok()
+            .and_then(|text| json::parse(&text).ok())
+            .and_then(|state| state.get("entries").cloned())
+            .unwrap_or(Json::Obj(Vec::new()));
+        json::obj([
+            ("format", BACKUP_FORMAT.into()),
+            ("version", 1u64.into()),
+            ("made", crate::log::iso8601(history::now() as i64).into()),
+            ("app_version", env!("CARGO_PKG_VERSION").into()),
+            ("links", Json::Arr(links)),
+            ("captured", Json::Arr(captured)),
+            ("downloads", downloads),
+            ("settings", self.settings().to_json()),
+        ])
+    }
+
+    /// Fold a backup into this collection. Nothing here is thrown away:
+    /// links it lacks are added, capture times it has none for are taken,
+    /// a download the backup has as done counts as done here too, and the
+    /// settings are replaced only when asked. Refused while a job runs.
+    pub fn restore(&self, backup: &Json, settings: bool) -> Result<Json, Problem> {
+        if backup.get("format").and_then(Json::as_str) != Some(BACKUP_FORMAT) {
+            return Err(Problem::new(
+                "not_backup",
+                "this is not an x-link-collector backup",
+            ));
+        }
+        if self.jobs.running() {
+            return Err(busy());
+        }
+        // Settings first: they may name another links file, and the links
+        // belong in the one they name.
+        let mut restored_settings = false;
+        if settings {
+            if let Some(Json::Obj(fields)) = backup.get("settings") {
+                self.update_settings(fields)?;
+                restored_settings = true;
+            }
+        }
+        let list = |key: &str| match backup.get(key) {
+            Some(Json::Arr(items)) => items.clone(),
+            _ => Vec::new(),
+        };
+        let links: Vec<String> = list("links")
+            .iter()
+            .filter_map(Json::as_str)
+            .filter_map(url::sanitize)
+            .collect();
+        let added = {
+            let mut store = self.store();
+            let written = store.add_all(&links).map_err(|e| {
+                Problem::new("write", format!("cannot add the links: {e}")).because(&e)
+            })?;
+            written.into_iter().filter(|new| *new).count()
+        };
+        let captured: Vec<(u64, String)> = list("captured")
+            .iter()
+            .filter_map(|pair| match pair {
+                Json::Arr(p) if p.len() == 2 => {
+                    Some((p[0].as_f64()? as u64, url::sanitize(p[1].as_str()?)?))
+                }
+                _ => None,
+            })
+            .collect();
+        let times = self.history().merge(&captured).unwrap_or(0);
+
+        let downloads = self.take_downloads(backup.get("downloads"))?;
+
+        log!(
+            "restored a backup: {added} link(s), {times} capture time(s), {downloads} download(s){}",
+            if restored_settings { ", and the settings" } else { "" }
+        );
+        Ok(json::obj([
+            ("links", added.into()),
+            ("captured", times.into()),
+            ("downloads", downloads.into()),
+            ("settings", restored_settings.into()),
+        ]))
+    }
+
+    /// The backup's download entries, into the history: one this history
+    /// lacks is taken as it is; one it has is replaced only when the backup
+    /// says done and this does not.
+    fn take_downloads(&self, theirs: Option<&Json>) -> Result<usize, Problem> {
+        let Some(Json::Obj(theirs)) = theirs else {
+            return Ok(0);
+        };
+        let path = self.history_file();
+        let mut entries: Vec<(String, Json)> = fs::read_to_string(&path)
+            .ok()
+            .and_then(|text| json::parse(&text).ok())
+            .and_then(|state| match state.get("entries") {
+                Some(Json::Obj(entries)) => Some(entries.clone()),
+                _ => None,
+            })
+            .unwrap_or_default();
+        let mut index: HashMap<String, usize> = entries
+            .iter()
+            .enumerate()
+            .map(|(i, (link, _))| (url::dedupe_key(link), i))
+            .collect();
+        let done = |e: &Json| e.get("status").and_then(Json::as_str) == Some("done");
+        let mut taken = 0;
+        for (link, entry) in theirs {
+            let Some(link) = url::sanitize(link) else {
+                continue;
+            };
+            if !matches!(entry, Json::Obj(_)) {
+                continue;
+            }
+            let key = url::dedupe_key(&link);
+            match index.get(&key) {
+                Some(&i) if done(&entries[i].1) || !done(entry) => {}
+                Some(&i) => {
+                    entries[i].1 = entry.clone();
+                    taken += 1;
+                }
+                None => {
+                    index.insert(key, entries.len());
+                    entries.push((link, entry.clone()));
+                    taken += 1;
+                }
+            }
+        }
+        if taken > 0 {
+            let state = json::obj([
+                ("version", 1u64.into()),
+                ("updated", crate::log::iso8601(history::now() as i64).into()),
+                ("entries", Json::Obj(entries)),
+            ]);
+            if let Some(dir) = path.parent() {
+                let _ = fs::create_dir_all(dir);
+            }
+            crate::store::write_atomic(&path, state.pretty().as_bytes(), self.fsync()).map_err(
+                |e| Problem::file("history", "cannot write the download history", &path, &e),
+            )?;
+        }
+        Ok(taken)
+    }
+
     /// Write these links into the download history as downloaded, so no run
     /// fetches them: for a list whose media is already at hand, when the
     /// history was lost. The entry is the one x-download would write, keyed
@@ -1277,13 +1437,14 @@ fn scan_media(root: &Path, ids: &mut HashSet<String>) -> MediaStats {
 mod tests {
     use super::*;
 
-    #[test]
-    fn links_are_marked_as_downloaded_in_x_downloads_format() {
-        let dir = temp_dir("mark");
-        fs::create_dir_all(&dir).unwrap();
+    /// An App on a folder of its own, links.txt in it, nothing else there.
+    /// The links file is given as --file would give it: left to the settings,
+    /// it would be the desktop's, and a test must never reach that.
+    fn app_in(dir: &Path) -> App {
+        fs::create_dir_all(dir).unwrap();
         let cfg = Config {
             addr: None,
-            file: None,
+            file: Some(dir.join("links.txt")),
             no_fsync: true,
             quiet: true,
             config_file: dir.join("config.json"),
@@ -1291,7 +1452,65 @@ mod tests {
             no_open: true,
         };
         let store = Store::open(dir.join("links.txt"), false).unwrap();
-        let app = App::new(cfg, Settings::default(), store, 9876);
+        App::new(cfg, Settings::default(), store, 9876)
+    }
+
+    #[test]
+    fn a_backup_restores_into_another_collection_without_losing_its_own() {
+        let root = temp_dir("backup");
+        let old = app_in(&root.join("old"));
+        old.store()
+            .add_all(&[
+                "https://x.com/a/status/1".into(),
+                "https://x.com/b/status/2".into(),
+            ])
+            .unwrap();
+        old.history()
+            .merge(&[(111, "https://x.com/a/status/1".into())])
+            .unwrap();
+        old.mark_downloaded(&["https://x.com/a/status/1".into()])
+            .unwrap();
+        old.update_settings(&[("jobs".into(), 5u64.into())])
+            .unwrap();
+        let backup = json::parse(&old.backup().pretty()).unwrap();
+
+        let new = app_in(&root.join("new"));
+        new.store()
+            .add_all(&["https://x.com/c/status/3".into()])
+            .unwrap();
+        let done = new.restore(&backup, false).unwrap();
+        assert_eq!(done.get("links"), Some(&Json::from(2usize)));
+        assert_eq!(done.get("captured"), Some(&Json::from(1usize)));
+        assert_eq!(done.get("downloads"), Some(&Json::from(1usize)));
+        assert_eq!(new.store().links().unwrap().len(), 3, "its own link stays");
+        assert_eq!(
+            new.history().captured("https://x.com/a/status/1"),
+            Some(111)
+        );
+        assert_eq!(new.settings().jobs, 3, "settings only when asked");
+        assert_eq!(
+            new.mark_downloaded(&["https://x.com/a/status/1".into()])
+                .unwrap(),
+            (0, 1)
+        );
+
+        let again = new.restore(&backup, true).unwrap();
+        assert_eq!(
+            again.get("links"),
+            Some(&Json::from(0usize)),
+            "nothing twice"
+        );
+        assert_eq!(new.settings().jobs, 5);
+        assert!(new
+            .restore(&json::obj([("format", "something else".into())]), false)
+            .is_err());
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn links_are_marked_as_downloaded_in_x_downloads_format() {
+        let dir = temp_dir("mark");
+        let app = app_in(&dir);
         fs::write(
             app.history_file(),
             r#"{"version": 1, "entries": {

@@ -22,6 +22,9 @@ pub const FILE_NAME: &str = "links.txt";
 /// Room for a pasted list of several thousand links; anything larger is not a
 /// link list.
 pub const MAX_BODY: usize = 1024 * 1024;
+/// A backup holds every link and the whole download history; this is room
+/// for a few hundred thousand of them.
+pub const MAX_RESTORE: usize = 64 * 1024 * 1024;
 
 pub struct Config {
     /// `--addr` / `--port`, or the same from the environment.
