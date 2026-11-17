@@ -297,7 +297,7 @@ The one exception is opt-in and announced: the mirror route (`--mirror`, or
 ## Tests
 
 ```sh
-make test        # 57 Rust unit tests, 23 JavaScript tests, 39 for the Python tools
+make test        # 58 Rust unit tests, 23 JavaScript tests, 42 for the Python tools
 make smoke       # start the built receiver and use it end to end
 make panel-test  # every panel page, English and Turkish, in headless Chrome
 ```
