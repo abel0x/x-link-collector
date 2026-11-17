@@ -29,8 +29,7 @@ cookies.txt
 # Logo working files: the repo carries the masters, not every exported size.
 # The other exports stay on disk, they are just not worth 1.8 MB of history.
 docs/logo/*
-!docs/logo/abel-neon-1024.png
-!docs/logo/abel-neon.svg
+!docs/logo/abel.svg
 
 # ---------------------------------------------------------------------------
 # Build output

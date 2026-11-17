@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- **A new look, shared with abel0x/toolkit.** The panel and the extension's
+  page drop the indigo, cyan and violet for near-black surfaces (or white in
+  the light theme), one light accent and flat bordered cards. Colour now only
+  means something: green for "running", red for what failed. The strip tells
+  its states apart by lightness, so it still reads without colour vision.
+- The logo is redrawn flat light grey on a dark tile, for the extension
+  icons, the panel and the README.
+
 ## [1.2.0] - 2026-11-06
 
 ### Fixed
