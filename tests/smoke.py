@@ -117,6 +117,15 @@ def run(binary: Path, work: Path) -> None:
         check(status == 403, "a web page cannot add links")
         status, _, _ = r.get("/api/status", {"Host": "evil.example"})
         check(status == 421, "nor read the panel through another name")
+        other = {"Origin": "chrome-extension://another", "Content-Type": "application/json"}
+        status, _, _ = r.request("/api/settings", b'{"python": "/bin/sh"}', other, "POST")
+        check(status == 403, "another extension cannot change the settings")
+        status, _, _ = r.request("/api/job", b'{"kind": "download"}', other, "POST")
+        check(status == 403, "nor start a job")
+        status, _, _ = r.get("/api/settings", {"Origin": "chrome-extension://another"})
+        check(status == 403, "nor read the panel's API")
+        status, _, _ = r.get("/health", {"Origin": "chrome-extension://smoke"})
+        check(status == 200, "the extension still sees whether the receiver is up")
 
         status, s = r.api("/api/status")
         check(s["total"] == 1 and s["downloads"]["pending"] == 1, "status counts the link")

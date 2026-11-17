@@ -3,8 +3,9 @@
 
 //! The panel's JSON API, and the capture endpoint the extension posts to.
 //!
-//! Everything under /api/ answers only on a loopback `Host` and to the panel's
-//! own origin (see `http::host_is_local` and `http::cors_for`). Requests that
+//! Everything under /api/ answers only on a loopback `Host`, and to the panel's
+//! own origin or a local tool that sends none (see `http::host_is_local`,
+//! `http::cors_for` and `http::extension_may`). Requests that
 //! change something must also carry a JSON body, which a cross-site form
 //! cannot send without a preflight -- and the preflight is refused.
 

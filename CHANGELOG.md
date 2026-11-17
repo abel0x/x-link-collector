@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Security
+
+- **Other browser extensions can no longer use the panel's API.** Any
+  installed extension could call x-link-receiver with its own origin, and
+  without a single permission of its own it could change the settings, point
+  the Python setting at a program of its choosing and start a "download" to
+  run it. Extensions may now only hand over a link (`POST /`) and ask whether
+  the receiver is up (`GET /health`), which is all ours does; everything under
+  `/api/` answers the panel and local tools only.
+
 ### Changed
 
 - **A new look, shared with abel0x/toolkit.** The panel and the extension's

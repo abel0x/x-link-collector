@@ -240,6 +240,22 @@ fn handle_connection(mut stream: TcpStream, app: &App) {
         let _ = http::write_response(&mut stream, &res, &cors, false);
         return;
     }
+    if origin.as_deref().map_or(false, http::is_extension)
+        && !http::extension_may(&req.method, &req.path)
+    {
+        elog!(
+            "refused {} {} from extension origin {}",
+            req.method,
+            req.path,
+            origin.unwrap_or_default()
+        );
+        let res = Response::text(
+            403,
+            "browser extensions may only send links here; the panel's API is the panel's\n",
+        );
+        let _ = http::write_response(&mut stream, &res, &cors, false);
+        return;
+    }
     // A capture carries the extension's Origin. Its plain GETs may not, so
     // the extension also says who it is; it only decides a setup hint.
     if origin.as_deref().map_or(false, http::is_extension)

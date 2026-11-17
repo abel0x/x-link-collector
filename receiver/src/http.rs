@@ -183,6 +183,23 @@ pub fn is_extension(origin: &str) -> bool {
         || origin.starts_with("safari-web-extension://")
 }
 
+/// What a browser extension may ask for: hand over a link, and see whether
+/// the receiver is up. Nothing else -- not the panel's API.
+///
+/// Any installed extension can send its own Origin, and an extension does not
+/// need a single permission to call a server that answers it. Were /api/ open
+/// to every extension origin, one that only knows the port could point the
+/// Python setting at a program of its choosing and start a "download" to run
+/// it. Ours never calls anything but these, so nothing is lost by refusing.
+pub fn extension_may(method: &str, path: &str) -> bool {
+    match method {
+        "OPTIONS" => true,
+        "POST" => matches!(path, "/" | "/add" | "/link" | "/links"),
+        "GET" | "HEAD" => matches!(path, "/health" | "/healthz"),
+        _ => false,
+    }
+}
+
 /// The panel's own origin, under any of the names loopback goes by. Another
 /// port is another origin: a dev server on localhost:3000 is not the panel.
 fn is_panel(origin: &str, port: u16) -> bool {
@@ -400,6 +417,32 @@ mod tests {
             cors_for(Some("http://127.0.0.1:9876.evil.tld"), 9876),
             Cors::Deny
         ));
+    }
+
+    #[test]
+    fn extensions_reach_only_capture_and_health() {
+        for (method, path) in [
+            ("POST", "/"),
+            ("POST", "/links"),
+            ("GET", "/health"),
+            ("HEAD", "/healthz"),
+            ("OPTIONS", "/api/settings"),
+        ] {
+            assert!(extension_may(method, path), "{method} {path}");
+        }
+        for (method, path) in [
+            ("POST", "/api/settings"),
+            ("POST", "/api/job"),
+            ("POST", "/api/links"),
+            ("POST", "/api/quit"),
+            ("GET", "/api/settings"),
+            ("GET", "/api/status"),
+            ("GET", "/"),
+            ("GET", "/media/a/1-1.jpg"),
+            ("PUT", "/"),
+        ] {
+            assert!(!extension_may(method, path), "{method} {path}");
+        }
     }
 
     #[test]
