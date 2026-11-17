@@ -1,5 +1,14 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- The panel's words live in `receiver/panel/i18n/en.json` and `tr.json`:
+  English is the source, Turkish follows it key for key. A test in CI fails
+  when a key, a `{placeholder}` or a plural form is missing from either, for
+  the panel and the extension alike.
+
 ## [1.2.1] - 2026-11-17
 
 ### Security

@@ -170,8 +170,11 @@ class Helpers(unittest.TestCase):
         written = {m for _, m in xd.ERROR_MAP}
         written |= set(re.findall(r'error="([^"]+)"', source))
         self.assertEqual(written - known, set())
+        words = {lang: json.loads((ROOT / f"receiver/panel/i18n/{lang}.json").read_text(encoding="utf-8"))
+                 for lang in ("en", "tr")}
         for key in set(re.findall(r"'(why\.\w+)'", table)):
-            self.assertEqual(panel.count(f"'{key}':"), 2, key)  # English and Turkish
+            self.assertIn(key, words["en"])
+            self.assertIn(key, words["tr"])
 
     def test_mirror_shapes(self):
         fx = {"tweet": {"author": {"screen_name": "alice"},

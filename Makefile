@@ -38,7 +38,7 @@ ci: ## run every check CI runs, including the cross-target ones
 	  $(CARGO) clippy --manifest-path receiver/Cargo.toml --target "$$t" \
 	    --all-targets -- -D warnings || exit 1; \
 	done
-	node --test tests/extension.test.mjs
+	node --test tests/extension.test.mjs tests/i18n.test.mjs
 	node --check receiver/panel/panel.js
 	node --check extension/options.js
 	$(PYTHON) -m unittest discover -s tests
@@ -52,7 +52,7 @@ test-rs: ## run the receiver's unit tests
 	$(CARGO) test --manifest-path receiver/Cargo.toml
 
 test-ext: ## run the service worker's tests (needs node)
-	node --test tests/extension.test.mjs
+	node --test tests/extension.test.mjs tests/i18n.test.mjs
 
 test-py: ## run the downloader's and the flattener's tests
 	$(PYTHON) -m unittest discover -s tests
