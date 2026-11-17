@@ -255,7 +255,9 @@ Everything is local. The receiver binds loopback only and **refuses any request
 carrying a web-page `Origin`** — without that rule, any site you visit could
 append lines to your file. The panel goes one step further and answers only to
 `127.0.0.1` and `localhost`, so a site cannot reach it by pointing its own domain
-at your machine. Nothing is uploaded anywhere.
+at your machine. Browser extensions may hand over a link and ask whether the
+receiver is up, nothing more: the panel's API answers the panel alone. Nothing
+is uploaded anywhere, and the downloader fetches tweets on x.com only.
 
 The one exception is opt-in and announced: the mirror route (`--mirror`, or
 **X, then mirrors** in the panel) sends a tweet id to `api.fxtwitter.com` /
@@ -268,8 +270,9 @@ The one exception is opt-in and announced: the mirror route (`--mirror`, or
 ## Tests
 
 ```sh
-make test        # 46 Rust unit tests, 15 service worker tests, 21 for the Python tools
+make test        # 55 Rust unit tests, 22 JavaScript tests, 39 for the Python tools
 make smoke       # start the built receiver and use it end to end
+make panel-test  # every panel page, English and Turkish, in headless Chrome
 ```
 
 CI runs the smoke test on Linux, macOS and Windows, against the binary it just

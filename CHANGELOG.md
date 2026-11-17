@@ -1,18 +1,9 @@
 # Changelog
 
-## [Unreleased]
+## [1.3.0] - 2026-11-17
 
 ### Added
 
-- `make panel-test` opens every page of the panel in English and Turkish in a
-  headless Chrome and fails on an untranslated key, a page in the wrong
-  language or an empty heading; CI runs it. `make screenshots` takes the
-  README's pictures again from a made-up collection.
-- **A video posted again is kept once.** When a download comes out byte for
-  byte the same as a file already in the media folder, it becomes a hard link
-  to it: both names stay where they are and the disk holds the file once. The
-  run says what it saved. On by default; *Keep one copy of a video posted
-  again* in Settings, or `--keep-duplicates`, turns it off.
 - **Gallery:** a page of every photo and video in the media folder, newest
   first, as a grid. Show only videos or only photos, or one account (each
   with how many it has); click one to open it in the viewer, which steps
@@ -25,6 +16,15 @@
   `data/bookmark.js` from the archive X sends you and every tweet in it is
   added. The tweets they quote are left out, and an imported link does not
   count towards the day it was read in.
+- **A video posted again is kept once.** When a download comes out byte for
+  byte the same as a file already in the media folder, it becomes a hard link
+  to it: both names stay where they are and the disk holds the file once. The
+  run says what it saved. On by default; *Keep one copy of a video posted
+  again* in Settings, or `--keep-duplicates`, turns it off.
+- `make panel-test` opens every page of the panel in English and Turkish in a
+  headless Chrome and fails on an untranslated key, a page in the wrong
+  language or an empty heading; CI runs it. `make screenshots` takes the
+  README's pictures again from a made-up collection.
 
 ### Changed
 
