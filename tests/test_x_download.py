@@ -300,3 +300,38 @@ class History(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PlatformPaths(unittest.TestCase):
+    """
+    The desktop and settings lookups per system, run on any one of them, so
+    CI needs no runner of each kind. x-flatten makes the same lookup.
+    """
+
+    CLEAN = {"HOME": "/u", "XDG_DESKTOP_DIR": "", "X_LINK_COLLECTOR_CONFIG": "",
+             "XDG_CONFIG_HOME": "", "APPDATA": "", "OneDrive": "", "OneDriveConsumer": ""}
+
+    def paths(self, module, platform: str, **env):
+        with mock.patch.dict(os.environ, {**self.CLEAN, **env}), \
+             mock.patch.object(module.sys, "platform", platform):
+            return module.desktop_dir(), module.config_path()
+
+    def test_macos(self):
+        for module in (xd, load("tools/x-flatten", "x_flatten_paths")):
+            desktop, config = self.paths(module, "darwin")
+            self.assertEqual(desktop, Path("/u") / "Desktop")
+            self.assertEqual(config, Path("/u") / "Library" / "Application Support"
+                             / "x-link-collector" / "config.json")
+
+    def test_windows(self):
+        desktop, config = self.paths(xd, "win32", APPDATA="/u/AppData/Roaming")
+        self.assertEqual(desktop, Path("/u") / "Desktop")
+        self.assertEqual(config, Path("/u/AppData/Roaming") / "x-link-collector" / "config.json")
+
+    def test_linux_reads_user_dirs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "user-dirs.dirs").write_text('XDG_DESKTOP_DIR="$HOME/Masaüstü"\n',
+                                                      encoding="utf-8")
+            desktop, config = self.paths(xd, "linux", XDG_CONFIG_HOME=tmp)
+        self.assertEqual(desktop, Path("/u") / "Masaüstü")
+        self.assertEqual(config, Path(tmp) / "x-link-collector" / "config.json")

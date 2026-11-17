@@ -8,6 +8,10 @@
   English is the source, Turkish follows it key for key. A test in CI fails
   when a key, a `{placeholder}` or a plural form is missing from either, for
   the panel and the extension alike.
+- **One macOS download for Intel and Apple silicon.** The release builds both
+  on one Mac and joins them (`x-link-collector-macos-universal.tar.gz`), in
+  place of the separate `macos-arm64` and `macos-x86_64` archives. 1.2.1 has
+  no Intel build: GitHub had no macOS runner free for it.
 
 ## [1.2.1] - 2026-11-17
 

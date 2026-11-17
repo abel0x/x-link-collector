@@ -206,13 +206,13 @@ separate Debian, Ubuntu, Fedora or Alpine build to pick between.
 <summary><b>macOS</b> — clear the quarantine flag first</summary>
 
 ```sh
-tar xzf x-link-collector-macos-arm64.tar.gz
-xattr -d com.apple.quarantine x-link-collector-macos-arm64/x-link-receiver
-./x-link-collector-macos-arm64/x-link-receiver --open
+tar xzf x-link-collector-macos-universal.tar.gz
+xattr -d com.apple.quarantine x-link-collector-macos-universal/x-link-receiver
+./x-link-collector-macos-universal/x-link-receiver --open
 ```
 
 The binary is not code-signed, so Gatekeeper blocks it until that attribute is
-removed. Take `macos-arm64` for Apple Silicon, `macos-x86_64` for Intel.
+removed. The one archive runs on Apple Silicon and Intel Macs alike.
 </details>
 
 <details>

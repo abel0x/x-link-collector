@@ -22,8 +22,10 @@ jobs:
           # musl, so one static binary runs on every distribution -- Debian,
           # Ubuntu, Fedora, Arch, Alpine -- with no glibc version to match.
           - { os: ubuntu-latest,  target: x86_64-unknown-linux-musl, label: linux-x86_64,   ext: "" }
-          - { os: macos-latest,   target: aarch64-apple-darwin,      label: macos-arm64,    ext: "" }
-          - { os: macos-latest,   target: x86_64-apple-darwin,       label: macos-x86_64,   ext: "" }
+          # One Mac builds both architectures and joins them with lipo: one
+          # download for Intel and Apple silicon, and one macOS runner to wait
+          # for instead of two (they are the scarce ones).
+          - { os: macos-latest,   target: universal-apple-darwin,    label: macos-universal, ext: "" }
           - { os: windows-latest, target: x86_64-pc-windows-msvc,    label: windows-x86_64, ext: ".exe" }
     steps:
       - uses: actions/checkout@v4
@@ -31,12 +33,25 @@ jobs:
       - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
           toolchain: stable
-          targets: ${{ matrix.target }}
+          targets: ${{ matrix.target == 'universal-apple-darwin' && 'aarch64-apple-darwin,x86_64-apple-darwin' || matrix.target }}
       - name: musl toolchain
         if: endsWith(matrix.target, '-musl')
         run: sudo apt-get update && sudo apt-get install -y musl-tools
       - name: build
+        if: matrix.target != 'universal-apple-darwin'
         run: cargo build --release --locked --target ${{ matrix.target }} --manifest-path receiver/Cargo.toml
+      - name: build (universal macOS)
+        if: matrix.target == 'universal-apple-darwin'
+        run: |
+          for arch in aarch64 x86_64; do
+            cargo build --release --locked --target "$arch-apple-darwin" --manifest-path receiver/Cargo.toml
+          done
+          out=receiver/target/universal-apple-darwin/release
+          mkdir -p "$out"
+          lipo -create -output "$out/x-link-receiver" \
+            receiver/target/aarch64-apple-darwin/release/x-link-receiver \
+            receiver/target/x86_64-apple-darwin/release/x-link-receiver
+          lipo -info "$out/x-link-receiver"
 
       # The whole kit, not just the binary: the receiver finds tools/ next to
       # itself, and the extension is loaded from the extension/ folder inside.
