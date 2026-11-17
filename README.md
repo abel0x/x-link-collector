@@ -120,7 +120,7 @@ there is nothing else to install, and it loads nothing from anywhere else.
 | | |
 |---|---|
 | **Overview** | One square per link, oldest first, coloured by what the downloader made of it, and the one button worth pressing next. |
-| **Links** | Every link with a thumbnail of what was downloaded; click it to see the photo or play the video. Search, filter by state, see why a download failed, fetch or retry a single link, paste a list in, take a link out. Read in the likes or bookmarks from your X data archive, and export what the list shows as CSV or JSON. |
+| **Links** | Every link with a thumbnail of what was downloaded; click it to see the photo or play the video. Search, filter by state, see why a download failed, fetch or retry a single link, paste a list in, take a link out. Read in a links.txt or the likes and bookmarks from your X data archive, marking them as already downloaded if you have their media, and export what the list shows as CSV or JSON. |
 | **Gallery** | Every photo and video in the media folder, newest first, in a grid: only videos or only photos, one account at a time, and the same viewer as Links. |
 | **Download** | Start, follow and stop a download, with the choices `x-download` has: mirrors, your own login, parallel downloads, a limit, a dry run. Or let new links download by themselves. Download again, on purpose, what you already have. |
 | **Folder** | What is on disk, and the one-folder [flatten](docs/flatten.md) — with undo. |

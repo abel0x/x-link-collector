@@ -179,6 +179,18 @@ of a newer version takes it over, and leaves the old file where it is.)
 Delete the history to rebuild from scratch; files still in the media folder
 are skipped by yt-dlp anyway.
 
+**Lost the history, but not the media?** Tell it which links are done instead
+of fetching them all again. Any list of links will do, `links.txt` itself
+included:
+
+```sh
+./x-download --mark-downloaded ~/Desktop/links.txt
+```
+
+Each link it holds is recorded as `done` (tool `marked`); links the history
+already has as downloaded are left alone. In the panel: **Links → Add links**,
+tick *They are already downloaded*, then paste the list or choose the file.
+
 ## Downloading again
 
 To fetch something again on purpose:
@@ -227,6 +239,7 @@ altogether. Without the file, everything is as described here.
 --look-in DIR       another folder to look for downloaded files in
 --history FILE      the download history (default: next to the settings file)
 --metadata          also write the tweet's metadata JSON
+--mark-downloaded F record every link in file F as downloaded, then exit
 --keep-duplicates   keep a second copy of a file already in the media folder
 --limit N           stop after N links this run; the rest stay queued
 --batch N           work the queue in groups of N, reporting after each

@@ -1076,6 +1076,25 @@ class Duplicates:
         return linked
 
 
+def mark_downloaded(state: State, links: list[str]) -> tuple[int, int]:
+    """
+    Record links as downloaded without fetching them: for a list whose media
+    is already at hand when the history has been lost. One the history
+    already has as downloaded is left as it is. Returns (marked, already).
+    """
+    marked = already = 0
+    for url in links:
+        entry = state.get(url)
+        if entry.get("status") == DONE:
+            already += 1
+            continue
+        state.record(url, status=DONE, files=entry.get("files", []), error="",
+                     tool="marked", attempts=max(1, int(entry.get("attempts", 0) or 0)))
+        marked += 1
+    state.save(force=True)
+    return marked, already
+
+
 def process(links: list[str], state: State, opts, tools: Tools) -> dict[str, int]:
     gone = gone_links(links, state, opts) if opts.again_missing else set()
     if gone:
@@ -1342,6 +1361,10 @@ def build_parser() -> argparse.ArgumentParser:
                             f"{user_data_dir() / 'venv'}), then exit")
     tools.add_argument("--check", action="store_true",
                        help="show which tools a download would use, then exit")
+    tools.add_argument("--mark-downloaded", type=Path, metavar="FILE",
+                       help="record every link in FILE as downloaded without fetching "
+                            "it (a list whose media you have, after the history was "
+                            "lost), then exit")
     tools.add_argument("--json", action="store_true", help=argparse.SUPPRESS)
     tools.add_argument("--history", type=Path, metavar="FILE",
                        help=f"the download history (default: {history_path()})")
@@ -1369,6 +1392,19 @@ def main(argv: list[str]) -> int:
                   or desktop_dir() / "links.txt").expanduser()
     opts.out = (opts.out or setting_path(config, "media_dir")
                 or desktop_dir() / "x-media").expanduser()
+
+    if opts.mark_downloaded:
+        source = opts.mark_downloaded.expanduser()
+        if not source.is_file():
+            print(f"no such file: {source}", file=sys.stderr)
+            return 1
+        state = State((opts.history or history_path()).expanduser())
+        links, _, skipped = read_links(source)
+        marked, already = mark_downloaded(state, links)
+        print(f"{marked} link marked as downloaded, {already} already were  ->  {state.path}")
+        if skipped:
+            print(f"note: {skipped} line skipped (not a link)", file=sys.stderr)
+        return 0
 
     tools = Tools(
         ytdlp=find_tool("yt_dlp", "yt-dlp", opts.ytdlp_path),

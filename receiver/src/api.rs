@@ -276,12 +276,15 @@ pub fn collect(req: &Request, app: &App) -> Response {
     let looks_json = content_type.contains("json") || trimmed.starts_with(['{', '[', '"']);
 
     // Links read from an X archive were collected long ago, on no known day:
-    // they go into the file, but not into the per-day history.
+    // they go into the file, but not into the per-day history. Links marked
+    // "downloaded" are written into the download history as such, too.
     let mut imported = false;
+    let mut downloaded = false;
     let candidates: Vec<String> = if looks_json {
         match json::parse(trimmed) {
             Ok(value) => {
                 imported = value.get("imported").and_then(Json::as_bool) == Some(true);
+                downloaded = value.get("downloaded").and_then(Json::as_bool) == Some(true);
                 let mut out = Vec::new();
                 json::collect_urls(&value, &mut out);
                 // The panel's box sends whatever was pasted as one string;
@@ -356,12 +359,25 @@ pub fn collect(req: &Request, app: &App) -> Response {
             &Problem::new("no_url", "no usable URL in request body"),
         );
     }
-    ok(vec![
+    let mut fields = vec![
         ("added".into(), added.into()),
         ("duplicate".into(), duplicate.into()),
         ("rejected".into(), rejected.into()),
         ("total".into(), total.into()),
-    ])
+    ];
+    if downloaded {
+        // The links are in the file either way; marking them is the part a
+        // running job could get in the way of.
+        match app.mark_downloaded(&clean) {
+            Ok((marked, already)) => {
+                fields.push(("marked".into(), marked.into()));
+                fields.push(("already_downloaded".into(), already.into()));
+            }
+            Err(e) if e.code == "busy" => return refused(409, &e),
+            Err(e) => return refused(500, &e),
+        }
+    }
+    ok(fields)
 }
 
 fn remove(req: &Request, app: &App) -> Response {

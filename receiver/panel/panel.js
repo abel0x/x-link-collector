@@ -1267,11 +1267,12 @@ function wireLinks() {
     const text = $('#links-add-text').value.trim();
     if (!text) return;
     try {
-      const r = await postJSON('/api/links', { urls: [text] });
+      const r = await postJSON('/api/links', { urls: [text], downloaded: $('#links-add-done').checked });
       // Only the parts that happened: "0 were already there" says nothing.
       const said = [];
       if (r.added) said.push(t('links.addedNew', { n: r.added }));
       if (r.duplicate) said.push(t('links.addedKnown', { n: r.duplicate }));
+      if (r.marked) said.push(t('links.marked', { n: r.marked }));
       toast(said.join(', '));
       if (r.rejected) toast(t('links.rejected', { n: r.rejected }), 'error');
       $('#links-add-text').value = '';
@@ -1287,14 +1288,16 @@ function wireLinks() {
   wireExport();
 }
 
-/** Tweets in an X archive file (like.js, bookmark.js), or in any text with links. */
+/** Tweets in an X archive file (like.js, bookmark.js), a links.txt, or any text with links. */
 function archiveLinks(text) {
   // An archive names each tweet by id; its text may quote other tweets,
   // which were not liked, so those links count only when there are no ids.
   const ids = [...text.matchAll(/"tweetId"\s*:\s*"(\d{1,25})"/g)].map((m) => m[1]);
   if (ids.length) return [...new Set(ids)].map((id) => `https://x.com/i/web/status/${id}`);
   const links = text.match(/https?:\/\/(?:www\.|mobile\.)?(?:x|twitter)\.com\/(?:[A-Za-z0-9_]{1,15}|i\/web)\/status(?:es)?\/\d{1,25}/g) || [];
-  return [...new Set(links)];
+  // A links.txt may also hold bare tweet ids, a line each, as x-download reads them.
+  const bare = [...text.matchAll(/^[ \t]*(\d{5,25})[ \t]*\r?$/gm)].map((m) => `https://x.com/i/web/status/${m[1]}`);
+  return [...new Set([...links, ...bare])];
 }
 
 async function importArchive(input) {
@@ -1311,15 +1314,19 @@ async function importArchive(input) {
     toast(t('links.imported', { file: file.name, n: links.length }));
     let added = 0;
     let duplicate = 0;
+    let marked = 0;
+    const downloaded = $('#links-add-done').checked;
     // A few thousand at a time keeps each request well under the body limit.
     for (let i = 0; i < links.length; i += 5000) {
-      const r = await postJSON('/api/links', { urls: [links.slice(i, i + 5000).join('\n')], imported: true });
+      const r = await postJSON('/api/links', { urls: [links.slice(i, i + 5000).join('\n')], imported: true, downloaded });
       added += r.added || 0;
       duplicate += r.duplicate || 0;
+      marked += r.marked || 0;
     }
     const said = [];
     if (added) said.push(t('links.addedNew', { n: added }));
     if (duplicate) said.push(t('links.addedKnown', { n: duplicate }));
+    if (marked) said.push(t('links.marked', { n: marked }));
     toast(said.join(', '));
     await loadLinks(true);
     kick();

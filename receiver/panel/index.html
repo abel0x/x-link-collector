@@ -131,16 +131,18 @@
       <textarea class="input mono" id="links-add-text" rows="5" spellcheck="false"></textarea>
       <span class="help" data-t="links.addHelp"></span>
     </label>
+    <label class="check"><input type="checkbox" id="links-add-done"><span data-t="links.markDone">They are already downloaded</span></label>
+    <span class="help" data-t="links.markDoneHelp"></span>
     <div class="row-buttons">
       <button type="submit" class="btn primary" data-t="links.addSave">Add to links.txt</button>
       <button type="button" class="btn" id="links-add-close" data-t="links.addCancel">Close</button>
     </div>
     <div class="import">
-      <span class="label" data-t="links.import">From your X archive</span>
+      <span class="label" data-t="links.import">From a file</span>
       <span class="help" data-t="links.importHelp"></span>
       <label class="btn file-pick">
         <input type="file" id="links-import" accept=".js,.json,.txt" class="visually-hidden">
-        <span data-t="links.importPick">Choose like.js or bookmark.js</span>
+        <span data-t="links.importPick">Choose a file</span>
       </label>
     </div>
   </form>

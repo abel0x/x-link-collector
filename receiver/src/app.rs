@@ -826,6 +826,80 @@ impl App {
         ])
     }
 
+    /// Write these links into the download history as downloaded, so no run
+    /// fetches them: for a list whose media is already at hand, when the
+    /// history was lost. The entry is the one x-download would write, keyed
+    /// the way it finds them again (by tweet id). A link the history already
+    /// has as downloaded is left as it is. Refused while a job runs, so the
+    /// file has one writer at a time. Returns (marked, already).
+    pub fn mark_downloaded(&self, links: &[String]) -> Result<(usize, usize), Problem> {
+        if self.jobs.running() {
+            return Err(busy());
+        }
+        let path = self.history_file();
+        let mut entries: Vec<(String, Json)> = fs::read_to_string(&path)
+            .ok()
+            .and_then(|text| json::parse(&text).ok())
+            .and_then(|state| match state.get("entries") {
+                Some(Json::Obj(entries)) => Some(entries.clone()),
+                _ => None,
+            })
+            .unwrap_or_default();
+        let mut index: HashMap<String, usize> = entries
+            .iter()
+            .enumerate()
+            .map(|(i, (link, _))| (url::dedupe_key(link), i))
+            .collect();
+        let at = crate::log::iso8601(history::now() as i64);
+        let (mut marked, mut already) = (0, 0);
+        for link in links {
+            let key = url::dedupe_key(link);
+            match index.get(&key) {
+                Some(&i) if entries[i].1.get("status").and_then(Json::as_str) == Some("done") => {
+                    already += 1;
+                }
+                found => {
+                    let old = found.map(|&i| entries[i].1.clone());
+                    let keep = |k: &str| old.as_ref().and_then(|e| e.get(k)).cloned();
+                    let attempts = keep("attempts")
+                        .and_then(|a| a.as_f64())
+                        .map_or(1.0, |a| a.max(1.0));
+                    let entry = json::obj([
+                        ("status", "done".into()),
+                        ("files", keep("files").unwrap_or(Json::Arr(Vec::new()))),
+                        ("error", "".into()),
+                        ("tool", "marked".into()),
+                        ("attempts", Json::Num(attempts)),
+                        ("at", at.as_str().into()),
+                    ]);
+                    match found {
+                        Some(&i) => entries[i].1 = entry,
+                        None => {
+                            index.insert(key, entries.len());
+                            entries.push((link.clone(), entry));
+                        }
+                    }
+                    marked += 1;
+                }
+            }
+        }
+        if marked > 0 {
+            let state = json::obj([
+                ("version", 1u64.into()),
+                ("updated", at.as_str().into()),
+                ("entries", Json::Obj(entries)),
+            ]);
+            if let Some(dir) = path.parent() {
+                let _ = fs::create_dir_all(dir);
+            }
+            crate::store::write_atomic(&path, state.pretty().as_bytes(), self.fsync()).map_err(
+                |e| Problem::file("history", "cannot write the download history", &path, &e),
+            )?;
+            log!("{marked} link(s) marked as downloaded, {already} already were");
+        }
+        Ok((marked, already))
+    }
+
     pub fn remove_link(&self, link: &str) -> Result<bool, Problem> {
         let removed = self.store().remove(link).map_err(|e| {
             Problem::new("rewrite", format!("cannot rewrite the links file: {e}")).because(&e)
@@ -1202,6 +1276,65 @@ fn scan_media(root: &Path, ids: &mut HashSet<String>) -> MediaStats {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn links_are_marked_as_downloaded_in_x_downloads_format() {
+        let dir = temp_dir("mark");
+        fs::create_dir_all(&dir).unwrap();
+        let cfg = Config {
+            addr: None,
+            file: None,
+            no_fsync: true,
+            quiet: true,
+            config_file: dir.join("config.json"),
+            open: false,
+            no_open: true,
+        };
+        let store = Store::open(dir.join("links.txt"), false).unwrap();
+        let app = App::new(cfg, Settings::default(), store, 9876);
+        fs::write(
+            app.history_file(),
+            r#"{"version": 1, "entries": {
+                "https://x.com/a/status/1": {"status": "done", "files": ["a/1-1.mp4"], "attempts": 1},
+                "https://x.com/b/status/2": {"status": "failed", "error": "rate limited", "attempts": 2}}}"#,
+        )
+        .unwrap();
+        let links = [
+            "https://x.com/someone/status/1".to_string(), // already done, under another handle
+            "https://x.com/b/status/2".to_string(),       // failed before
+            "https://x.com/c/status/3".to_string(),       // never seen
+        ];
+        assert_eq!(app.mark_downloaded(&links).unwrap(), (2, 1));
+        let text = fs::read_to_string(app.history_file()).unwrap();
+        let state = json::parse(&text).unwrap();
+        let entry = |link: &str| {
+            state
+                .get("entries")
+                .and_then(|e| e.get(link))
+                .cloned()
+                .unwrap()
+        };
+        assert_eq!(
+            entry("https://x.com/a/status/1").get("files"),
+            Some(&Json::Arr(vec!["a/1-1.mp4".into()]))
+        );
+        let failed = entry("https://x.com/b/status/2");
+        assert_eq!(failed.get("status").and_then(Json::as_str), Some("done"));
+        assert_eq!(failed.get("tool").and_then(Json::as_str), Some("marked"));
+        assert_eq!(failed.get("attempts"), Some(&Json::Num(2.0)));
+        assert_eq!(
+            entry("https://x.com/c/status/3")
+                .get("status")
+                .and_then(Json::as_str),
+            Some("done")
+        );
+        assert!(state
+            .get("entries")
+            .and_then(|e| e.get("https://x.com/someone/status/1"))
+            .is_none());
+        assert_eq!(app.mark_downloaded(&links).unwrap(), (0, 3));
+        fs::remove_dir_all(&dir).unwrap();
+    }
 
     #[test]
     fn tools_are_looked_for_beside_the_binary_and_under_share() {

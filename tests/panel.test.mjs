@@ -47,3 +47,13 @@ test('any other text gives the tweet links in it', () => {
   assert.deepEqual([...archiveLinks(text)], ['https://x.com/alice/status/1', 'https://mobile.twitter.com/bob/status/2']);
   assert.deepEqual([...archiveLinks('nothing here')], []);
 });
+
+test('a links.txt gives its links and its bare tweet ids', () => {
+  const archiveLinks = take('archiveLinks');
+  const text = 'https://x.com/alice/status/11\n1790637656616943991\n  12345\nnote 99999\n\nhttps://x.com/alice/status/11\n';
+  assert.deepEqual([...archiveLinks(text)], [
+    'https://x.com/alice/status/11',
+    'https://x.com/i/web/status/1790637656616943991',
+    'https://x.com/i/web/status/12345',
+  ]);
+});

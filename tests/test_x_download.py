@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import importlib.machinery
 import importlib.util
+import io
 import json
 import os
 import sys
@@ -407,3 +408,36 @@ class VenvPlace(unittest.TestCase):
              mock.patch.object(xd.os, "access", return_value=False):
             (Path(tmp) / ".venv").mkdir()
             self.assertEqual(xd.venv_dir(), Path(tmp) / ".venv")
+
+
+class MarkDownloaded(unittest.TestCase):
+    def test_a_list_is_recorded_as_downloaded(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = xd.State(Path(tmp) / "history.json")
+            state.record("https://x.com/a/status/1", status=xd.DONE, files=["a/1-1.mp4"], attempts=1)
+            state.record("https://x.com/b/status/2", status=xd.FAILED, error="rate limited", attempts=2)
+            links = ["https://x.com/someone/status/1", "https://x.com/b/status/2",
+                     "https://x.com/i/web/status/3"]
+            self.assertEqual(xd.mark_downloaded(state, links), (2, 1))
+            again = xd.State(Path(tmp) / "history.json")  # as saved on disk
+            self.assertEqual(again.get("https://x.com/a/status/1")["files"], ["a/1-1.mp4"])
+            failed = again.get("https://x.com/b/status/2")
+            self.assertEqual((failed["status"], failed["tool"], failed["attempts"], failed["error"]),
+                             (xd.DONE, "marked", 2, ""))
+            self.assertEqual(again.get("https://x.com/c/status/3")["status"], xd.DONE)
+            self.assertEqual(xd.mark_downloaded(again, links), (0, 3))
+
+    def test_from_the_command_line(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            listing = Path(tmp) / "links.txt"
+            listing.write_text("https://x.com/a/status/10\n1790637656616943991\nnot a link\n")
+            history = Path(tmp) / "history.json"
+            out = io.StringIO()
+            with mock.patch("sys.stdout", out), mock.patch("sys.stderr", io.StringIO()):
+                code = xd.main(["--no-config", "--mark-downloaded", str(listing),
+                                "--history", str(history)])
+            self.assertEqual(code, 0)
+            self.assertIn("2 link marked as downloaded, 0 already were", out.getvalue())
+            entries = json.loads(history.read_text())["entries"]
+            self.assertEqual(len(entries), 2)
+            self.assertTrue(all(e["status"] == xd.DONE for e in entries.values()))

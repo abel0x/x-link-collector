@@ -4,6 +4,14 @@
 
 ### Added
 
+- **Mark a list as already downloaded.** When the download history is lost
+  but the media is not, a `links.txt` (or any list of links) can say which
+  links are done: tick *They are already downloaded* in Add links, then paste
+  the list or choose the file, or run `x-download --mark-downloaded FILE`.
+  Each one is recorded as downloaded, so no run fetches it again; links the
+  history already has are left as they are.
+- Add links reads any file now: a `links.txt`, bare tweet ids included, as
+  well as `like.js` and `bookmark.js` from an X archive.
 - `make update`, for a copy built from source: pulls the latest, installs it
   and restarts the receiver's service. It will not cut a running download
   short unless told to (`FORCE=1`).

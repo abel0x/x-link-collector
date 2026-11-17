@@ -154,6 +154,13 @@ def run(binary: Path, work: Path) -> None:
         status, s = r.api("/api/status")
         check(s["total"] == 1 and s["downloads"]["pending"] == 1, "status counts the link")
 
+        status, raw = r.api("/api/links", {"urls": ["https://x.com/b/status/77\nhttps://x.com/c/status/78"],
+                                           "downloaded": True})
+        check(status == 200 and raw.get("marked") == 2, "a list can be added as already downloaded")
+        s = r.api("/api/status")[1]
+        check(s["downloads"]["done"] == 2 and s["downloads"]["pending"] == 1,
+              "and counts as downloaded, the rest as before")
+
         status, view = r.api("/api/settings", {"jobs": 2})
         check(status == 200 and json.loads(r.config.read_text())["jobs"] == 2, "settings are saved")
 
