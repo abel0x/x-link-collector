@@ -4,6 +4,9 @@
 
 ### Added
 
+- `make update`, for a copy built from source: pulls the latest, installs it
+  and restarts the receiver's service. It will not cut a running download
+  short unless told to (`FORCE=1`).
 - CI builds and tests the receiver with Rust 1.65, the oldest version
   `Cargo.toml` promises, so the promise is checked rather than assumed.
 

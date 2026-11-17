@@ -19,7 +19,7 @@ PANEL    := http://127.0.0.1:9876/
 OPEN     := $(if $(filter Darwin,$(UNAME)),open,xdg-open)
 
 .DEFAULT_GOAL := help
-.PHONY: help build ci test test-rs test-ext test-py smoke panel-test screenshots run panel install uninstall \
+.PHONY: help build ci test test-rs test-ext test-py smoke panel-test screenshots run panel install update uninstall \
 	    service service-stop service-uninstall status logs package clean \
 	    downloader-setup downloader-update download download-watch download-all \
 	    download-status flatten flatten-undo
@@ -96,6 +96,21 @@ else
 	@systemctl --user --no-pager --lines=0 status $(BIN_NAME).service || true
 endif
 	@echo "the panel is at $(PANEL)  (make panel opens it)"
+
+update: ## pull the latest, install it and restart the receiver (FORCE=1 even mid-download)
+	@if [ -z "$(FORCE)" ] && curl -fsS $(PANEL)api/status 2>/dev/null \
+	  | grep -Eq '"job":\{[^}]*"state":"(running|stopping)"'; then \
+	  echo "a job is running in the panel; let it finish, or: make update FORCE=1"; exit 1; fi
+	git pull --ff-only
+	$(MAKE) install
+ifeq ($(UNAME),Darwin)
+	-launchctl kickstart -k gui/$$(id -u)/$(PLIST_ID) 2>/dev/null
+else
+	@# Only if it runs as a service already; nothing is started that was not.
+	-systemctl --user try-restart $(BIN_NAME).service
+endif
+	@$(PREFIX)/bin/$(BIN_NAME) --version
+	@echo "reload the extension (or restart the browser) to bring it up to date too"
 
 service-stop: ## stop the service without uninstalling it
 ifeq ($(UNAME),Darwin)

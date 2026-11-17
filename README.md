@@ -73,6 +73,10 @@ make service            # build, install, and run it at every login
 make panel              # open the panel in your browser
 ```
 
+Later, `make update` pulls the latest, installs it and restarts the receiver
+(not while a download runs); reload the extension, or restart the browser, for
+its half.
+
 `make run` starts it in the foreground instead. Needs [Rust](https://rustup.rs);
 the download tools need Python 3.9+.
 </details>
