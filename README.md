@@ -49,6 +49,20 @@ for the one-time warnings macOS and Windows show for unsigned programs.
 </details>
 
 <details>
+<summary><b>Arch Linux</b> — from the AUR</summary>
+
+```sh
+yay -S x-link-collector                       # or paru, or makepkg -si
+systemctl --user enable --now x-link-receiver     # run it at every login
+```
+
+The extension is then in `/usr/share/x-link-collector/extension`. yt-dlp,
+gallery-dl and ffmpeg can come from the repositories, or the panel installs its
+own copies in your home folder. Packaging for another distribution:
+[docs/packaging.md](docs/packaging.md).
+</details>
+
+<details>
 <summary><b>From source</b> — Linux / macOS</summary>
 
 ```sh
@@ -135,7 +149,7 @@ stopping is free — the panel's Stop, Ctrl-C, `--limit`,
 | **[receiver/](receiver/)** | A dependency-free Rust daemon on `127.0.0.1:9876`. Appends links, deduplicates, fsyncs each write, and serves the panel from `receiver/panel/`. 935 KB static binary, under 1 MB RSS, one idle thread. |
 | **[extension/](extension/)** | One Manifest V3 extension for Vivaldi, Chrome, Brave, Edge and Firefox. Cleans the URL, posts it, closes the tab once the write is confirmed. |
 | **[tools/](tools/)** | `x-download` fetches the media behind the links, once each, via yt-dlp and gallery-dl — resumable, deduplicating, with routes for age-restricted tweets ([docs](docs/downloader.md)). `x-flatten` lays the per-handle folders out in one, reversibly ([docs](docs/flatten.md)). |
-| **[packaging/](packaging/)** | Starting it at login: the systemd unit, the launchd agent, and the Windows setup script. |
+| **[packaging/](packaging/)** | Starting it at login: the systemd unit, the launchd agent, and the Windows setup script. Release archives carry it too. |
 | **[tests/](tests/)** | The extension's and the Python tools' tests, and the smoke test CI runs against the built receiver. |
 
 ## Three rules the extension never breaks

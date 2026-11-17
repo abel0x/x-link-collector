@@ -53,7 +53,7 @@
   "setup.ext": "Tarayıcı eklentisini yükleyin",
   "setup.extHow": "Tarayıcınızın eklentiler sayfasını açın (chrome://extensions, vivaldi://extensions, brave://extensions ya da edge://extensions). Geliştirici modunu açın, Paketlenmemiş öğe yükle düğmesine basın ve aşağıdaki klasörü seçin. Firefox kullanıyorsanız bunun yerine sürüm sayfasındaki .xpi dosyasını kurun.",
   "setup.tools": "İndirme araçlarını kurun",
-  "setup.toolsHow": "Asıl indirmeyi yt-dlp ve gallery-dl yapar. İkisi de tools/.venv klasörüne kurulur; sisteminize başka bir şey kurulmaz.",
+  "setup.toolsHow": "Asıl indirmeyi yt-dlp ve gallery-dl yapar. İkisi de kendilerine ait bir klasöre kurulur (tools/.venv; program sisteme kuruluysa kullanıcı veri klasörünüz); sisteminizdeki Python’a dokunulmaz.",
   "setup.python": "Python 3 kurun",
   "setup.pythonHow": "İndirici bir Python programıdır. python.org adresinden Python indirip kurun (Windows’ta kurulum sırasında “Add python.exe to PATH” kutusunu işaretleyin), ardından Ayarlar sayfasındaki Yeniden kontrol et düğmesine basın.",
   "setup.install": "Araçları kur",

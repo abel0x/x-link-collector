@@ -1868,7 +1868,7 @@ function renderTools() {
     ['ffmpeg', tools.ffmpeg ? h('dd', { text: tools.ffmpeg }) : missing(t('st.ffmpegMissing'))],
   ];
   if (tools.yt_dlp || tools.gallery_dl) {
-    rows.push(['', h('dd', { class: 'help', text: t('st.found', { where: tools.venv ? t('st.venv') : t('st.path') }) })]);
+    rows.push(['', h('dd', { class: 'help', text: t('st.found', { where: tools.venv ? (tools.venv_dir || t('st.venv')) : t('st.path') }) })]);
   }
   if (tools.error) rows.push(['', missing(tools.error)]);
   facts.replaceChildren(...rows.flatMap(([name, dd]) => [h('dt', { text: name }), dd]));

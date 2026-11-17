@@ -985,16 +985,35 @@ fn path_text(p: &Path) -> String {
 fn tool_dir_candidates() -> Vec<PathBuf> {
     let mut out = Vec::new();
     if let Some(dir) = env::current_exe().ok().as_deref().and_then(Path::parent) {
-        // A release archive: the tools sit next to the binary.
-        out.push(dir.to_path_buf());
-        // A build tree: <repo>/receiver/target/[<triple>/]release/.
-        out.extend(dir.ancestors().skip(3).take(2).map(Path::to_path_buf));
+        out.extend(beside_binary(dir));
     }
     // The checkout this binary was built from -- where the tools are for
     // anyone who ran `make install` or `make service`.
-    if let Some(repo) = Path::new(env!("CARGO_MANIFEST_DIR")).parent() {
+    if let Some(repo) = SOURCE_DIR.and_then(|dir| Path::new(dir).parent()) {
         out.push(repo.to_path_buf());
     }
+    out
+}
+
+/// The receiver/ folder this binary was built in. A distribution package
+/// builds in a folder that is gone once it is installed, so it sets
+/// X_LINK_COLLECTOR_PACKAGED at build time and the path is left out of the
+/// binary altogether (docs/packaging.md).
+const SOURCE_DIR: Option<&str> = match option_env!("X_LINK_COLLECTOR_PACKAGED") {
+    Some(_) => None,
+    None => Some(env!("CARGO_MANIFEST_DIR")),
+};
+
+/// Where the tools may be, given the binary's folder.
+fn beside_binary(dir: &Path) -> Vec<PathBuf> {
+    let mut out = vec![dir.to_path_buf()]; // a release archive: next to it
+                                           // A system package: /usr/bin/x-link-receiver, /usr/share/x-link-collector/.
+    if let Some(prefix) = dir.parent() {
+        out.push(prefix.join("share").join("x-link-collector"));
+        out.push(prefix.join("lib").join("x-link-collector"));
+    }
+    // A build tree: <repo>/receiver/target/[<triple>/]release/.
+    out.extend(dir.ancestors().skip(3).take(2).map(Path::to_path_buf));
     out
 }
 
@@ -1160,6 +1179,16 @@ fn scan_media(root: &Path, ids: &mut HashSet<String>) -> MediaStats {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tools_are_looked_for_beside_the_binary_and_under_share() {
+        let found = beside_binary(Path::new("/usr/bin"));
+        assert_eq!(found[0], Path::new("/usr/bin"));
+        assert!(found.contains(&PathBuf::from("/usr/share/x-link-collector")));
+        assert!(found.contains(&PathBuf::from("/usr/lib/x-link-collector")));
+        let build = beside_binary(Path::new("/src/xlc/receiver/target/release"));
+        assert!(build.contains(&PathBuf::from("/src/xlc")));
+    }
 
     #[test]
     fn the_panel_key_is_kept_and_private() {

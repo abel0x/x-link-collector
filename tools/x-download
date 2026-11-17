@@ -44,9 +44,6 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 IS_WINDOWS = sys.platform == "win32"
-# A virtualenv puts its executables in Scripts\ on Windows and bin/ everywhere else.
-VENV_BIN = HERE / ".venv" / ("Scripts" if IS_WINDOWS else "bin")
-VENV_PYTHON = VENV_BIN / ("python.exe" if IS_WINDOWS else "python")
 # What has been downloaded lives next to the panel's settings, not in the
 # media folder: the media folder is the thing people move, empty and sync to
 # the cloud, and the record of what was fetched must not leave with it.
@@ -101,6 +98,37 @@ def home() -> Path:
         if value:
             return Path(value)
     return Path.home()
+
+
+def user_data_dir() -> Path:
+    """Where this user's own copy of yt-dlp and gallery-dl goes when tools/ is not theirs."""
+    base = home()
+    if sys.platform == "win32":
+        root = Path(os.environ.get("LOCALAPPDATA") or base / "AppData" / "Local")
+    elif sys.platform == "darwin":
+        root = base / "Library" / "Application Support"
+    else:
+        root = Path(os.environ.get("XDG_DATA_HOME") or base / ".local" / "share")
+    return root / "x-link-collector"
+
+
+def venv_dir() -> Path:
+    """
+    The virtualenv yt-dlp and gallery-dl live in: tools/.venv, next to this
+    script, in a release folder or a checkout. When that folder is not ours to
+    write -- a system package puts it under /usr/share -- the user's own data
+    folder instead.
+    """
+    beside = HERE / ".venv"
+    if beside.exists() or os.access(HERE, os.W_OK):
+        return beside
+    return user_data_dir() / "venv"
+
+
+def venv_python() -> Path:
+    # A virtualenv puts its executables in Scripts\ on Windows and bin/ elsewhere.
+    return venv_dir() / ("Scripts" if sys.platform == "win32" else "bin") / (
+        "python.exe" if sys.platform == "win32" else "python")
 
 
 def desktop_dir() -> Path:
@@ -223,8 +251,9 @@ def find_tool(module: str, script: str, override: str | None = None) -> list[str
     if override:
         resolved = override if Path(override).exists() else shutil.which(override)
         return [resolved] if resolved else None
-    if VENV_PYTHON.exists():
-        return [str(VENV_PYTHON), "-m", module]
+    python = venv_python()
+    if python.exists():
+        return [str(python), "-m", module]
     found = shutil.which(script)
     return [found] if found else None
 
@@ -800,14 +829,15 @@ def tool_version(argv: list[str], flag: str = "--version") -> str | None:
 
 def setup() -> int:
     """
-    yt-dlp and gallery-dl into tools/.venv, or upgraded there. The same
+    yt-dlp and gallery-dl into their virtualenv (venv_dir), or upgraded there. The same
     thing `make downloader-setup` does, and the panel's Install button.
     """
-    venv = VENV_BIN.parent
-    if not VENV_PYTHON.exists():
+    venv = venv_dir()
+    python = venv_python()
+    if not python.exists():
         print(f"creating {venv}", flush=True)
         code = subprocess.call([sys.executable, "-m", "venv", str(venv)])
-        if code != 0 or not VENV_PYTHON.exists():
+        if code != 0 or not python.exists():
             print("could not create the virtualenv", file=sys.stderr)
             if sys.platform.startswith("linux"):
                 print("  Debian/Ubuntu need it installed first: "
@@ -815,14 +845,14 @@ def setup() -> int:
             return 1
     print("installing yt-dlp and gallery-dl -- a minute or so", flush=True)
     code = subprocess.call([
-        str(VENV_PYTHON), "-m", "pip", "install", "--quiet",
+        str(python), "-m", "pip", "install", "--quiet",
         "--disable-pip-version-check", "--upgrade", "pip", "yt-dlp", "gallery-dl",
     ])
     if code != 0:
         print("pip install failed; the reason is above", file=sys.stderr)
         return code
     for module, name in (("yt_dlp", "yt-dlp"), ("gallery_dl", "gallery-dl")):
-        version = tool_version([str(VENV_PYTHON), "-m", module])
+        version = tool_version([str(python), "-m", module])
         print(f"  {name:<10} {version or 'installed, but does not run'}", flush=True)
     return 0
 
@@ -835,7 +865,8 @@ def check(as_json: bool) -> int:
     ffmpeg_line = tool_version([ffmpeg], "-version") if ffmpeg else None
     found = {
         "python_version": ".".join(map(str, sys.version_info[:3])),
-        "venv": VENV_PYTHON.exists(),
+        "venv": venv_python().exists(),
+        "venv_dir": str(venv_dir()),
         "yt_dlp": tool_version(ytdlp) if ytdlp else None,
         "gallery_dl": tool_version(gallery_dl) if gallery_dl else None,
         # "ffmpeg version 7.1.1 Copyright ..." -> "7.1.1"
@@ -848,7 +879,7 @@ def check(as_json: bool) -> int:
     print(f"yt-dlp      {found['yt_dlp'] or 'missing'}")
     print(f"gallery-dl  {found['gallery_dl'] or 'missing'}")
     print(f"ffmpeg      {found['ffmpeg'] or 'missing (needed when X serves video and audio apart)'}")
-    print(f"from        {'tools/.venv' if found['venv'] else '$PATH'}")
+    print(f"from        {found['venv_dir'] if found['venv'] else '$PATH'}")
     return 0 if found["yt_dlp"] or found["gallery_dl"] else 1
 
 
@@ -1306,8 +1337,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     tools = p.add_argument_group("tools and settings")
     tools.add_argument("--setup", action="store_true",
-                       help="install or upgrade yt-dlp and gallery-dl in "
-                            "tools/.venv, then exit")
+                       help="install or upgrade yt-dlp and gallery-dl in tools/.venv "
+                            "(or, when tools/ is read-only, in "
+                            f"{user_data_dir() / 'venv'}), then exit")
     tools.add_argument("--check", action="store_true",
                        help="show which tools a download would use, then exit")
     tools.add_argument("--json", action="store_true", help=argparse.SUPPRESS)

@@ -1,5 +1,19 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **Installed system-wide, as a distribution package would.** The receiver
+  also finds `tools/` and `extension/` under `<prefix>/share/x-link-collector`
+  for a binary in `<prefix>/bin`. When `tools/` is not writable, the download
+  tools' virtualenv goes into the user's data folder
+  (`~/.local/share/x-link-collector/venv` on Linux) instead of `tools/.venv`,
+  and the panel says where it is. [docs/packaging.md](docs/packaging.md) has
+  the layout; the Arch package `x-link-collector` follows it.
+- Release archives carry `packaging/`: the systemd unit, the launchd agent and
+  the Windows setup script.
+
 ## [1.4.0] - 2026-11-17
 
 ### Security

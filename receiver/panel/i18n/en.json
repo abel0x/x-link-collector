@@ -74,7 +74,7 @@
   "setup.ext": "Load the browser extension",
   "setup.extHow": "Open chrome://extensions (or vivaldi://, brave://, edge://extensions), turn on Developer mode, choose Load unpacked and pick this folder. In Firefox, install the .xpi from the release page instead.",
   "setup.tools": "Install the download tools",
-  "setup.toolsHow": "yt-dlp and gallery-dl do the actual downloading. They go into tools/.venv; nothing is installed system-wide.",
+  "setup.toolsHow": "yt-dlp and gallery-dl do the actual downloading. They go into a folder of their own (tools/.venv, or your data folder when the program is installed system-wide); your system's Python is left alone.",
   "setup.python": "Install Python 3",
   "setup.pythonHow": "The downloader is a Python script. Get Python from python.org (on Windows, tick \"Add python.exe to PATH\"), then press Check again under Settings.",
   "setup.install": "Install the tools",

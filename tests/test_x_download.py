@@ -385,3 +385,25 @@ class Duplicates(unittest.TestCase):
     def test_the_setting_turns_it_off(self):
         self.assertEqual(xd.config_defaults({"link_duplicates": False}), {"keep_duplicates": True})
         self.assertEqual(xd.config_defaults({"link_duplicates": True}), {})
+
+
+class VenvPlace(unittest.TestCase):
+    """yt-dlp's virtualenv: beside the tools when that is writable, else the user's data folder."""
+
+    def test_beside_the_tools_in_a_release_folder(self):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(xd, "HERE", Path(tmp)):
+            self.assertEqual(xd.venv_dir(), Path(tmp) / ".venv")
+
+    def test_in_the_data_folder_under_a_system_install(self):
+        env = {"HOME": "/u", "XDG_DATA_HOME": ""}
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(xd, "HERE", Path(tmp)), \
+             mock.patch.object(xd.os, "access", return_value=False), \
+             mock.patch.dict(os.environ, env), mock.patch.object(xd.sys, "platform", "linux"):
+            self.assertEqual(xd.venv_dir(), Path("/u") / ".local" / "share" / "x-link-collector" / "venv")
+            self.assertEqual(xd.venv_python(), xd.venv_dir() / "bin" / "python")
+
+    def test_an_existing_one_beside_the_tools_is_kept(self):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(xd, "HERE", Path(tmp)), \
+             mock.patch.object(xd.os, "access", return_value=False):
+            (Path(tmp) / ".venv").mkdir()
+            self.assertEqual(xd.venv_dir(), Path(tmp) / ".venv")
