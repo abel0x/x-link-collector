@@ -7,7 +7,7 @@ The panel's **Download** page runs it for you, with every choice below as a
 button or a field. From the repository root:
 
 ```sh
-make downloader-setup     # once: yt-dlp + gallery-dl into tools/.venv, no sudo
+make downloader-setup     # once: yt-dlp + gallery-dl into their own virtualenv, no sudo
 make download             # download everything new
 make download-all         # including age-restricted tweets
 make download-status      # what has been collected
@@ -248,8 +248,10 @@ altogether. Without the file, everything is as described here.
 --status            print a summary and exit
 --dry-run           list what would be downloaded
 --only URL          just this link from the links file; repeat for more
---setup             install or upgrade yt-dlp + gallery-dl in tools/.venv
+--setup             install or upgrade yt-dlp + gallery-dl in their virtualenv
 --check             show which tools a download would use, with versions
+--yt-dlp PATH       this yt-dlp instead of the one found
+--gallery-dl PATH   this gallery-dl instead of the one found
 --no-config         ignore the panel's settings file
 ```
 
@@ -262,9 +264,18 @@ altogether. Without the file, everything is as described here.
 | `login required -- retry with --cookies vivaldi` | run with `--cookies`, or try `--mirror` |
 | `rate limited by X` | wait, or lower `--jobs` |
 | `network error` | retried automatically on the next run |
+| `tweet is restricted (age-gated or hidden from logged-out viewers)` | `--mirror`, or a login |
+| `no mirror had this tweet` | the mirrors could not see it either; a login may |
+| `not an X link; only tweets on x.com are downloaded` | nothing; such links are never fetched |
+
+The panel shows each of these in English or Turkish, as the reader chooses;
+anything else is a tool's own output and is shown as it came.
 
 ## Alternative installs
 
-The venv keeps everything inside this folder. If you would rather have the tools
-system-wide, `pipx install yt-dlp gallery-dl` (or your package manager) also
-works — `x-download` prefers `tools/.venv` and falls back to `$PATH`.
+The virtualenv is `tools/.venv`, inside this folder, when the folder is
+writable; for a system-wide install (the AUR package, say) it is
+`~/.local/share/x-link-collector/venv` instead (`%LOCALAPPDATA%` on Windows,
+Application Support on macOS). If you would rather have the tools system-wide,
+`pipx install yt-dlp gallery-dl` (or your package manager) also works —
+`x-download` prefers its virtualenv and falls back to `$PATH`.

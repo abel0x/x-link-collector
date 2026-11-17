@@ -61,8 +61,21 @@ Each user then turns it on for themselves:
 systemctl --user enable --now x-link-receiver
 ```
 
+After an upgrade, the receiver goes on running the old binary until it is
+restarted; the Arch package says so on upgrade:
+
+```sh
+systemctl --user restart x-link-receiver
+```
+
+The extension in `/usr/share/x-link-collector/extension` is read again by a
+Chromium browser when it starts, so an upgrade reaches it then; the panel says
+when the extension in use is older than the receiver.
+
 ## Settings and data
 
-Nothing is kept beside the program. Settings, the download history, the
-capture log and the panel key are in `$XDG_CONFIG_HOME/x-link-collector/`;
-links and media go where the settings say, by default the user's desktop.
+Nothing is kept beside the program. In `$XDG_CONFIG_HOME/x-link-collector/`
+(usually `~/.config/x-link-collector/`): `config.json` (the settings),
+`download-history.json`, `history.tsv` (when each link was collected),
+`panel-key`, `extension-seen` and `extension-version`. Links and media go where
+the settings say, by default the user's desktop.

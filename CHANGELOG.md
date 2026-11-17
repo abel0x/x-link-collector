@@ -97,7 +97,7 @@
   with GitHub's signed record of the repository, commit and workflow that
   built it; `gh attestation verify <file> --repo abel0x/x-link-collector`
   checks it.
-- `make store-zip` and [docs/chrome-web-store.md](docs/chrome-web-store.md):
+- `make store-zip` and [docs/chrome-web-store.md](https://github.com/abel0x/x-link-collector/blob/v1.4.0/docs/chrome-web-store.md):
   the package and the listing, in English and Turkish, for publishing the
   extension on the Chrome Web Store. Releases carry that package too.
 

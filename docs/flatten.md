@@ -77,5 +77,5 @@ Putting the flat folder inside `x-media` is what was asked for and it works, but
 recursively, so it will keep counting them. Somewhere outside is tidier:
 
 ```sh
-./x-flatten --dest ~/Videolar/x-hepsi
+./x-flatten --dest ~/Videos/x-all
 ```

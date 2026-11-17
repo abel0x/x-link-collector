@@ -52,8 +52,8 @@ for the one-time warnings macOS and Windows show for unsigned programs.
 <summary><b>Arch Linux</b> — from the AUR</summary>
 
 ```sh
-yay -S x-link-collector                       # or paru, or makepkg -si
-systemctl --user enable --now x-link-receiver     # run it at every login
+yay -S x-link-collector                          # or paru, or makepkg -si
+systemctl --user enable --now x-link-receiver    # run it at every login
 ```
 
 The extension is then in `/usr/share/x-link-collector/extension`. yt-dlp,
@@ -150,11 +150,11 @@ stopping is free — the panel's Stop, Ctrl-C, `--limit`,
 
 | | |
 |---|---|
-| **[receiver/](receiver/)** | A dependency-free Rust daemon on `127.0.0.1:9876`. Appends links, deduplicates, fsyncs each write, and serves the panel from `receiver/panel/`. 935 KB static binary, under 1 MB RSS, one idle thread. |
+| **[receiver/](receiver/)** | A dependency-free Rust daemon on `127.0.0.1:9876`. Appends links, deduplicates, fsyncs each write, and serves the panel from `receiver/panel/`, its words from `receiver/panel/i18n/`. A static binary of about 1 MB, a few MB of memory, one idle thread. |
 | **[extension/](extension/)** | One Manifest V3 extension for Vivaldi, Chrome, Brave, Edge and Firefox. Cleans the URL, posts it, closes the tab once the write is confirmed. |
 | **[tools/](tools/)** | `x-download` fetches the media behind the links, once each, via yt-dlp and gallery-dl — resumable, deduplicating, with routes for age-restricted tweets ([docs](docs/downloader.md)). `x-flatten` lays the per-handle folders out in one, reversibly ([docs](docs/flatten.md)). |
 | **[packaging/](packaging/)** | Starting it at login: the systemd unit, the launchd agent, and the Windows setup script. Release archives carry it too. |
-| **[tests/](tests/)** | The extension's and the Python tools' tests, and the smoke test CI runs against the built receiver. |
+| **[tests/](tests/)** | The extension's, the panel's and the Python tools' tests, the check that English and Turkish stay in step, the smoke test CI runs against the built receiver, the panel in a headless browser, and the script that takes the README's pictures. |
 
 ## Three rules the extension never breaks
 
@@ -204,14 +204,27 @@ to one file:
 `x-download` and `x-flatten` read it too, so a choice made in the panel holds on
 the command line; an option given there still wins, as does
 `x-link-receiver --file ~/notes/tweets.txt`, which the panel then shows as fixed.
-Next to the settings, `history.tsv` records when each link was captured, so
-`links.txt` itself stays one URL per line.
+Next to the settings live the rest of what the receiver keeps, so `links.txt`
+itself stays one URL per line:
+
+| | |
+|---|---|
+| `download-history.json` | what was downloaded, so nothing is fetched twice; rebuilt from a list with `x-download --mark-downloaded` if it is lost |
+| `history.tsv` | when each link was collected |
+| `panel-key` | the panel's key (see [Privacy](#privacy)), readable by you alone |
+| `extension-seen`, `extension-version` | when the extension last said hello, and which version it is |
+
+A copy installed system-wide (the AUR package, say) keeps the download tools'
+virtualenv in `~/.local/share/x-link-collector/venv` instead of `tools/.venv`.
+Settings → Backup saves all of it, and the links, to one file.
 
 ## Installing a release
 
-Each archive holds the receiver, the downloader, the flattener and the extension,
-plus a `.sha256` to check it against. The receiver finds the two Python tools next
-to itself, and the extension loads from the `extension` folder inside.
+Each archive holds the receiver, the downloader, the flattener, the extension
+and `packaging/` (the systemd unit, the launchd agent, the Windows setup
+script), plus a `.sha256` to check it against. The receiver finds the two
+Python tools next to itself, and the extension loads from the `extension`
+folder inside.
 
 From 1.4.0 on, every archive and extension package also has a build
 attestation: GitHub's signed record that it was built by this repository's
@@ -269,8 +282,11 @@ Building from source avoids both warnings, and takes about ten seconds.
 | macOS | ✅ | ✅ | ✅ | ✅ |
 | Windows | ✅ | ✅ | ✅ | ✅ |
 
-CI builds and runs the full test suite on all three on every push, so the badge
-above is the real check. The receiver uses `poll(2)` and `signal(2)` on Unix and
+CI builds the receiver and runs its tests and the smoke test on all three on
+every push, the Python tools' tests on Linux and Windows (their macOS paths are
+checked there too), the panel in a headless browser, and the receiver once more
+with Rust 1.65, the oldest it promises; the badge above is that check. The
+receiver uses `poll(2)` and `signal(2)` on Unix and
 a console control handler on Windows; the Python tools are standard library only
 and shell out to yt-dlp / gallery-dl, which run everywhere too.
 
@@ -292,7 +308,10 @@ is uploaded anywhere, and the downloader fetches tweets on x.com only.
 
 The one exception is opt-in and announced: the mirror route (`--mirror`, or
 **X, then mirrors** in the panel) sends a tweet id to `api.fxtwitter.com` /
-`api.vxtwitter.com` when X itself refuses the link.
+`api.vxtwitter.com` when X itself refuses the link. (Firefox, like for any
+add-on, checks this repository's latest release now and then for a newer
+version of the extension; that is the browser asking GitHub, not the
+extension reporting anything.)
 
 > **Your `links.txt` and `x-media/` are personal data.** Both are in `.gitignore`,
 > along with videos, images and `cookies.txt`. Check `git status` before your first
@@ -306,8 +325,9 @@ make smoke       # start the built receiver and use it end to end
 make panel-test  # every panel page, English and Turkish, in headless Chrome
 ```
 
-CI runs the smoke test on Linux, macOS and Windows, against the binary it just
-built.
+CI runs the smoke test on Linux, macOS and Windows against the binary it just
+built, the panel test on Linux, and the receiver's tests again with Rust 1.65.
+`make screenshots` takes the pictures above again.
 
 ## Licence
 
