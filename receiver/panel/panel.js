@@ -184,7 +184,9 @@ const WORDS = {
     'fo.title': 'Media folder',
     'fo.open': 'Open folder',
     'fo.files': ['{n} file, {size}', '{n} files, {size}'],
-    'fo.kinds': '{videos} videos and {images} images',
+    'fo.kinds': '{videos} and {images}',
+    'fo.kindVideos': ['{n} video', '{n} videos'],
+    'fo.kindImages': ['{n} image', '{n} images'],
     'fo.none': 'Nothing downloaded yet.',
     'fo.flat': 'Put everything in one folder',
     'fo.flatHelp': 'Moves every file out of its per-account folder into one place. Every move is recorded, so Undo puts each file back exactly.',
@@ -277,6 +279,16 @@ const WORDS = {
     'reason.denied': 'permission denied',
     'reason.missing': 'no such place',
     'reason.no_opener': 'no program to open it with',
+    'why.notFound': 'Tweet not found: deleted, from a private account, or a wrong id.',
+    'why.restricted': 'Restricted tweet. Try again with mirrors, or choose a login under Log in with.',
+    'why.restrictedAge': 'Restricted tweet: age-gated, or hidden from visitors who are not logged in.',
+    'why.login': 'A login is needed. Choose one under Log in with, then try again.',
+    'why.rateLimited': 'X is limiting requests. Wait a while, or lower Parallel downloads.',
+    'why.suspended': 'The account is suspended.',
+    'why.network': 'Network error.',
+    'why.notTweet': 'Not a tweet link.',
+    'why.notX': 'Not an X link. Only tweets on x.com are downloaded.',
+    'why.noMirror': 'None of the mirrors had this tweet.',
   },
 
   tr: {
@@ -452,7 +464,9 @@ const WORDS = {
     'fo.title': 'Medya klasörü',
     'fo.open': 'Klasörü aç',
     'fo.files': '{n} dosya, {size}',
-    'fo.kinds': '{videos} video, {images} görsel',
+    'fo.kinds': '{videos}, {images}',
+    'fo.kindVideos': '{n} video',
+    'fo.kindImages': '{n} görsel',
     'fo.none': 'Henüz bir şey indirilmedi.',
     'fo.flat': 'Hepsini tek klasörde topla',
     'fo.flatHelp': 'Her dosyayı kendi hesap klasöründen çıkarıp tek bir klasöre taşır. Her taşıma kaydedilir; Taşımayı geri al düğmesi her dosyayı eski yerine koyar.',
@@ -516,13 +530,13 @@ const WORDS = {
     'st.source': 'Kaynak kod ve yardım',
     'st.openFolder': 'Klasörü aç',
     'st.pinned': 'Bu ayar, x-link-receiver başlatılırken komut satırında ya da bir ortam değişkeniyle belirlendi; oradan değiştirilebilir.',
-    'st.autostart': 'Windows açılınca kendiliğinden başlat',
+    'st.autostart': 'Windows’ta oturum açınca kendiliğinden başlat',
     'st.autostartHelp': 'Arka planda sessizce çalışır; panel her zaman bu adreste olur.',
     'st.quit': 'x-link-receiver programını kapat',
     'st.quitHelp': 'Program yeniden başlatılana kadar bağlantı toplanmaz. Süren bir indirme varsa önce o durdurulur.',
     'st.quitTitle': 'x-link-receiver kapatılsın mı?',
     'st.quitDone': 'x-link-receiver kapatıldı.',
-    'err.autostart': 'Açılışta başlatma ayarı değiştirilemedi ({reason}).',
+    'err.autostart': 'Oturum açılışında başlatma ayarı değiştirilemedi ({reason}).',
     'save.unsaved': 'Kaydedilmemiş değişiklikler var',
     'save.discard': 'Vazgeç',
     'save.save': 'Değişiklikleri kaydet',
@@ -545,7 +559,33 @@ const WORDS = {
     'reason.denied': 'izin yok',
     'reason.missing': 'böyle bir yer yok',
     'reason.no_opener': 'açacak bir program bulunamadı',
+    'why.notFound': 'Tweet bulunamadı: silinmiş, gizli bir hesaba ait ya da kimliği yanlış.',
+    'why.restricted': 'Kısıtlı tweet. Aynalarla yeniden deneyin ya da “Kullanılacak oturum” kısmından bir oturum seçin.',
+    'why.restrictedAge': 'Kısıtlı tweet: yaş sınırlı ya da oturum açmamış kişilerden gizlenmiş.',
+    'why.login': 'Oturum gerekiyor. “Kullanılacak oturum” kısmından birini seçip yeniden deneyin.',
+    'why.rateLimited': 'X istekleri sınırlıyor. Bir süre bekleyin ya da eşzamanlı indirme sayısını düşürün.',
+    'why.suspended': 'Hesap askıya alınmış.',
+    'why.network': 'Ağ hatası.',
+    'why.notTweet': 'Bu bir tweet bağlantısı değil.',
+    'why.notX': 'X bağlantısı değil. Yalnızca x.com’daki tweet’ler indirilir.',
+    'why.noMirror': 'Aynaların hiçbirinde bu tweet yoktu.',
   },
+};
+
+/* x-download records why a link failed in English, for its own log and the
+   command line. The ones it writes itself are put into the reader's language
+   here; anything else is a tool's own output and is shown as it came. */
+const WHY = {
+  'tweet not found (deleted, private account, or bad id)': 'why.notFound',
+  'restricted tweet -- retry with --mirror, or --cookies vivaldi': 'why.restricted',
+  'tweet is restricted (age-gated or hidden from logged-out viewers)': 'why.restrictedAge',
+  'login required -- retry with --cookies vivaldi': 'why.login',
+  'rate limited by X -- wait a bit, or lower --jobs': 'why.rateLimited',
+  'account suspended': 'why.suspended',
+  'network error': 'why.network',
+  'not a tweet URL': 'why.notTweet',
+  'not an X link; only tweets on x.com are downloaded': 'why.notX',
+  'no mirror had this tweet': 'why.noMirror',
 };
 
 /* -------------------------------------------------------------- plumbing */
@@ -587,6 +627,13 @@ function t(key, vars = {}) {
     const value = vars[name];
     return typeof value === 'number' ? fmt.number.format(value) : String(value);
   });
+}
+
+/** Why a link failed, in the reader's language when x-download said it. */
+function whyFailed(error) {
+  const key = WHY[error];
+  if (key) return h('p', { class: 'why', text: t(key) });
+  return h('p', { class: 'why', lang: 'en', text: error });
 }
 
 function h(tag, props = {}, ...children) {
@@ -1637,7 +1684,7 @@ function linkRow(item) {
       h('a', { class: 'btn small quiet', href: item.url, target: '_blank', rel: 'noopener noreferrer', text: t(item.id ? 'links.open' : 'links.openOther') }),
       h('button', { type: 'button', class: 'btn small quiet', text: t('links.copy'), onclick: () => copyText(item.url) }),
       h('button', { type: 'button', class: 'btn small quiet danger', text: t('links.remove'), onclick: () => removeLink(item) })),
-    item.status === 'failed' && item.error ? h('p', { class: 'why', text: item.error }) : null);
+    item.status === 'failed' && item.error ? whyFailed(item.error) : null);
 }
 
 async function removeLink(item) {
@@ -1924,7 +1971,10 @@ function renderFolder(first) {
   if (m.files) {
     count.replaceChildren(
       t('fo.files', { n: m.files, size: bytes(m.bytes) }),
-      h('span', { class: 'sub', text: t('fo.kinds', { videos: m.videos, images: m.images }) }));
+      h('span', { class: 'sub', text: t('fo.kinds', {
+        videos: t('fo.kindVideos', { n: m.videos }),
+        images: t('fo.kindImages', { n: m.images }),
+      }) }));
   } else {
     count.textContent = t('fo.none');
   }

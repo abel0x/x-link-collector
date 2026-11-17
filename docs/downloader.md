@@ -66,6 +66,11 @@ first one that produces media wins.
 A link that yt-dlp reports as *media-less* stops there: it saw the tweet, and
 the tweet holds no video. Only an outright failure escalates.
 
+Only tweets on x.com and twitter.com take any route at all. Any other line in
+links.txt is left where it is and marked failed for good ("not an X link"), so
+yt-dlp is never pointed at another site, or at a login meant for X. Media a
+mirror names is fetched over https only.
+
 **Route 2 (syndication)** is X's own endpoint, the one that powers tweets
 embedded on other websites. It needs no login, and on a normal tweet it returns
 byte-identical media to route 1 — so the fallback costs no quality and runs

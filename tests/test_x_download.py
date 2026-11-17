@@ -125,6 +125,54 @@ class Helpers(unittest.TestCase):
         self.assertEqual(xd.tweet_id("https://x.com/i/web/status/9"), "9")
         self.assertIsNone(xd.tweet_id("https://example.com/"))
 
+    def test_only_tweets_on_x_are_fetched(self):
+        for ok in ("https://x.com/a/status/1", "https://twitter.com/a/status/1?s=20",
+                   "http://mobile.twitter.com/a/status/1", "https://x.com/i/web/status/9",
+                   "https://WWW.X.COM/a/status/1/photo/1"):
+            self.assertTrue(xd.is_x_link(ok), ok)
+        for bad in ("https://example.com/a/status/1", "https://x.com.evil.tld/a/status/1",
+                    "http://192.168.1.1/status/1", "file:///x.com/a/status/1",
+                    "https://x.com/home", "https://evil.tld/?u=https://x.com/a/status/1", ""):
+            self.assertFalse(xd.is_x_link(bad), bad)
+
+    def test_other_links_never_reach_the_tools(self):
+        opts = SimpleNamespace(mirror_only=False, mirror=True)
+        tools = xd.Tools(ytdlp=["yt-dlp"], gallery_dl=["gallery-dl"])
+        with mock.patch.object(xd, "run") as run, mock.patch.object(xd, "http_json") as api:
+            result = xd.fetch("http://192.168.1.1/status/1", opts, tools)
+        run.assert_not_called()
+        api.assert_not_called()
+        self.assertEqual((result.status, result.permanent), (xd.FAILED, True))
+
+    def test_a_mirror_cannot_point_at_local_files(self):
+        answer = {"tweet": {"author": {"screen_name": "alice"}, "media": {"all": [
+            {"type": "video", "url": "file:///home/someone/.ssh/id_ed25519"},
+            {"type": "photo", "url": "https://pbs.twimg.com/media/a.jpg"},
+        ]}}}
+        fetched = []
+        with tempfile.TemporaryDirectory() as tmp:
+            opts = SimpleNamespace(out=Path(tmp), timeout=30)
+            with mock.patch.object(xd, "http_json", return_value=answer), \
+                 mock.patch.object(xd, "download_file",
+                                   side_effect=lambda src, dest, t: fetched.append(src) or True):
+                result = xd.run_mirror("https://x.com/alice/status/5", opts)
+        self.assertEqual(fetched, ["https://pbs.twimg.com/media/a.jpg?name=orig"])
+        self.assertEqual(result.status, xd.DONE)
+
+    def test_the_panel_translates_every_reason_given(self):
+        """Each failure text x-download writes has an entry in the panel's WHY table."""
+        import re
+        panel = (ROOT / "receiver/panel/panel.js").read_text(encoding="utf-8")
+        table = panel[panel.index("const WHY = {"):]
+        table = table[:table.index("};")]
+        known = set(re.findall(r"^\s*'([^']+)': 'why\.", table, re.M))
+        source = (ROOT / "tools/x-download").read_text(encoding="utf-8")
+        written = {m for _, m in xd.ERROR_MAP}
+        written |= set(re.findall(r'error="([^"]+)"', source))
+        self.assertEqual(written - known, set())
+        for key in set(re.findall(r"'(why\.\w+)'", table)):
+            self.assertEqual(panel.count(f"'{key}':"), 2, key)  # English and Turkish
+
     def test_mirror_shapes(self):
         fx = {"tweet": {"author": {"screen_name": "alice"},
                         "media": {"all": [{"type": "photo", "url": "https://pbs/img.jpg"}]}}}

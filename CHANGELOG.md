@@ -11,6 +11,21 @@
   run it. Extensions may now only hand over a link (`POST /`) and ask whether
   the receiver is up (`GET /health`), which is all ours does; everything under
   `/api/` answers the panel and local tools only.
+- **Only tweets on x.com and twitter.com are downloaded.** Any other link in
+  links.txt reached yt-dlp's generic extractor, so a run could be sent to any
+  address, the local network included, and with a login chosen the browser's
+  cookies for that site went along. Such links stay in the file but are now
+  marked failed for good, as "Not an X link".
+- The mirror route only fetches media over https. A mirror's answer could name
+  a `file://` address, which would have copied a file from this disk into the
+  media folder.
+
+### Fixed
+
+- Why a link failed is shown in Turkish too, for every reason x-download
+  gives itself; a tool's own output is still shown as it came.
+- "1 videos and 1 images" on the Folder page.
+- The Turkish for starting at Windows sign-in said "when Windows starts".
 
 ### Changed
 
